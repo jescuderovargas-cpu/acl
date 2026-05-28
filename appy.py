@@ -2,27 +2,31 @@ import streamlit as st
 import gspread
 import pandas as pd
 
-st.set_page_config(page_title="Dashboard", layout="wide")
+st.set_page_config(page_title="Diagnóstico", layout="wide")
 
 @st.cache_data(ttl=600)
-def load_data():
+def diagnostico_conexiones():
     creds = st.secrets["gcp_service_account"]
     gc = gspread.service_account_from_dict(creds)
     
-    # 1. Abrir por ID
+    # 1. Intentar abrir el archivo
     sh = gc.open_by_key("1Sm-0JmTghLfQczZ3k-W57JNZRbH10waNQj6HVOXZdgk")
     
-    # 2. Acceder a la hoja específicamente por nombre
-    # Si sigue dando error, asegúrate de que el nombre sea EXACTAMENTE "registro visitas"
-    ws = sh.worksheet("registro visitas")
+    # 2. Obtener lista de nombres de pestañas para ver si "registro visitas" existe
+    lista_pestañas = [ws.title for ws in sh.worksheets()]
     
-    return pd.DataFrame(ws.get_all_records())
+    # 3. Intentar cargar la primera hoja
+    ws = sh.get_worksheet(0)
+    df = pd.DataFrame(ws.get_all_records())
+    
+    return lista_pestañas, df
 
-st.title("📋 Registro de Visitas")
+st.title("🔍 Diagnóstico de Conexión")
 
 try:
-    df = load_data()
-    st.dataframe(df, use_container_width=True)
+    pestañas, df = diagnostico_conexiones()
+    st.success("¡Conexión exitosa!")
+    st.write("Pestañas encontradas en el archivo:", pestañas)
+    st.dataframe(df)
 except Exception as e:
-    st.error(f"Error al cargar la hoja: {e}")
-    st.write("Asegúrate de que la pestaña se llame exactamente 'registro visitas' y que el bot tenga permisos de Lector.")
+    st.error(f"Error detectado: {e}")
