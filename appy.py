@@ -1,51 +1,44 @@
 import streamlit as st
 import pandas as pd
 
-# Configuración inicial de la página
+# Configuración de página
 st.set_page_config(page_title="Dashboard ACL", layout="wide")
 
-st.title("📊 Dashboard de Gestión de Datos")
-
-# --- CONFIGURACIÓN DE LAS URLs ---
-# Sustituye estas URLs por las de tus 3 Google Sheets reales
-# Asegúrate de que las hojas sean públicas (archivo -> compartir -> cualquier persona con el enlace)
+# Lista de tus enlaces publicados como CSV
 URLS = [
-    "TU_URL_HOJA_1",
-    "TU_URL_HOJA_2",
-    "TU_URL_HOJA_3"
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSUgGBm_yYSbJpK3-Sz-mftj2qhPNaUZJ4L7pV7PdlgDm16m0WFqX5rLxWj-rcJ06SN8TbZAPJvoz-d/pub?output=csv"
+    # Si tienes más hojas, añade las URLs aquí separadas por comas
 ]
 
-# --- FUNCIÓN DE CARGA ---
 @st.cache_data(ttl=600)
 def cargar_datos(urls):
     lista_dfs = []
     for url in urls:
-        # Convertimos la URL para descargar como CSV
-        csv_url = url.replace("/edit#gid=", "/export?format=csv&gid=")
-        df = pd.read_csv(csv_url)
-        lista_dfs.append(df)
+        try:
+            df = pd.read_csv(url)
+            lista_dfs.append(df)
+        except Exception as e:
+            st.warning(f"No se pudo cargar una de las hojas: {e}")
     
-    # Unimos todas las hojas en una sola
-    return pd.concat(lista_dfs, ignore_index=True)
+    if lista_dfs:
+        return pd.concat(lista_dfs, ignore_index=True)
+    else:
+        return pd.DataFrame()
 
-# --- EJECUCIÓN ---
-try:
-    with st.spinner('Cargando datos de Google Sheets...'):
-        df_completo = cargar_datos(URLS)
+# --- INTERFAZ ---
+st.title("📊 Dashboard de Datos")
 
-    # Buscador
-    st.subheader("Buscador General")
-    query = st.text_input("Escribe para filtrar los datos:")
+df = cargar_datos(URLS)
 
+if not df.empty:
+    # Buscador simple
+    query = st.text_input("🔍 Buscar en los datos:")
+    
     if query:
-        # Filtra el DataFrame si hay texto en el buscador
-        df_filtrado = df_completo[df_completo.apply(lambda row: row.astype(str).str.contains(query, case=False).any(), axis=1)]
-        st.write(f"Resultados encontrados: {len(df_filtrado)}")
+        # Filtra el DataFrame
+        df_filtrado = df[df.apply(lambda row: row.astype(str).str.contains(query, case=False).any(), axis=1)]
         st.dataframe(df_filtrado, use_container_width=True)
     else:
-        # Muestra todo si no hay nada escrito
-        st.dataframe(df_completo, use_container_width=True)
-
-except Exception as e:
-    st.error(f"Error al cargar los datos: {e}")
-    st.info("Asegúrate de que las URLs de tus Google Sheets sean correctas y estén compartidas como 'Cualquier persona con el enlace puede leer'.")
+        st.dataframe(df, use_container_width=True)
+else:
+    st.write("No hay datos disponibles para mostrar.")
