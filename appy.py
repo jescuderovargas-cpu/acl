@@ -2,7 +2,12 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import plotly.express as px
+
+try:
+    import plotly.express as px
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
 
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN GENERAL
@@ -15,7 +20,7 @@ st.set_page_config(
 
 SHEET_ID = "TU_ID_DE_GOOGLE_SHEET_AQUI"
 NOMBRE_PESTANA = "Registro visitas"
-ARCHIVO_LOCAL_FALLBACK = "Tecnicos.xlsx"  # Usado solo si activas modo Excel local
+ARCHIVO_LOCAL_FALLBACK = "Tecnicos.xlsx"
 
 
 # ---------------------------------------------------------
@@ -48,7 +53,6 @@ def cargar_datos_excel_local(ruta_excel: str, pestana: str) -> pd.DataFrame:
 
 def limpiar_visitas(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.copy()
-    # Normalizar nombres de columnas (respetando contenido pero limpiando bordes)
     df.columns = [str(c).strip() for c in df.columns]
 
     # Eliminar filas vacías sin Id ni Fecha
@@ -67,13 +71,13 @@ def limpiar_visitas(df_raw: pd.DataFrame) -> pd.DataFrame:
     if "Semana" in df.columns:
         df["Semana"] = pd.to_numeric(df["Semana"], errors="coerce")
 
-    # Limpiar espacios en campos de texto clave
+    # Limpiar espacios en campos clave
     for col in ["Técnico/a", "Agricultor/a", "Tipo de agricultor", "Género", "Campaña"]:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
             df.loc[df[col].isin(["nan", "None", ""]), col] = None
 
-    # Indicador de foto / archivo adjunto
+    # Indicadores de adjuntos
     df["Tiene foto"] = (
         df["Adjuntar foto"].notna() & (df["Adjuntar foto"].astype(str).str.strip() != "")
         if "Adjuntar foto" in df.columns
@@ -110,6 +114,11 @@ try:
         df_raw = cargar_datos_excel_local(ARCHIVO_LOCAL_FALLBACK, NOMBRE_PESTANA)
 except Exception as e:
     st.error(f"No se pudo cargar '{NOMBRE_PESTANA}': {e}")
+    st.info(
+        "Revisa el ID del Sheet, el nombre de la pestaña, que esté compartida con "
+        "`firebase-app-hosting-compute@studio-5810984322-26d93.iam.gserviceaccount.com` "
+        "y que `st.secrets['gcp_service_account']` esté configurado."
+    )
     st.stop()
 
 df = limpiar_visitas(df_raw)
@@ -149,6 +158,9 @@ if "Tipo de agricultor" in df.columns and df["Tipo de agricultor"].notna().any()
 st.title("📋 Cuadro de Mandos — Registro de Visitas")
 st.caption(f"Registros filtrados: **{len(df):,}**")
 
+if not HAS_PLOTLY:
+    st.caption("Mostrando gráficos nativos de Streamlit (añade `plotly` a `requirements.txt` y reinicia la app para usar Plotly).")
+
 total_visitas = len(df)
 agricultores_unicos = df["Agricultor/a"].nunique() if "Agricultor/a" in df.columns else 0
 tecnicos_activos = df["Técnico/a"].nunique() if "Técnico/a" in df.columns else 0
@@ -171,15 +183,19 @@ with col_izq:
             .agg(Visitas=("Id", "count"), Agricultores=("Agricultor/a", "nunique"))
             .sort_values("Visitas", ascending=False)
         )
-        fig_tec = px.bar(
-            visitas_tec,
-            x="Técnico/a",
-            y="Visitas",
-            hover_data=["Agricultores"],
-            title="Visitas por técnico/a",
-            text_auto=True,
-        )
-        st.plotly_chart(fig_tec, use_container_width=True)
+        if HAS_PLOTLY:
+            fig_tec = px.bar(
+                visitas_tec,
+                x="Técnico/a",
+                y="Visitas",
+                hover_data=["Agricultores"],
+                title="Visitas por técnico/a",
+                text_auto=True,
+            )
+            st.plotly_chart(fig_tec, use_container_width=True)
+        else:
+            st.subheader("Visitas por técnico/a")
+            st.bar_chart(visitas_tec.set_index("Técnico/a")["Visitas"])
 
 with col_der:
     if "Género" in df.columns:
@@ -189,26 +205,39 @@ with col_der:
             .rename(columns={"size": "Visitas"})
             .sort_values("Visitas", ascending=False)
         )
-        fig_gen = px.bar(
-            visitas_gen,
-            x="Género",
-            y="Visitas",
-            title="Visitas por cultivo / género",
-            text_auto=True,
-        )
-        st.plotly_chart(fig_gen, use_container_width=True)
+        if HAS_PLOTLY:
+            fig_gen = px.bar(
+                visitas_gen,
+                x="Género",
+                y="Visitas",
+                title="Visitas por cultivo / género",
+                text_auto=True,
+            )
+            st.plotly_chart(fig_gen, use_container_width=True)
+        else:
+            st.subheader("Visitas por cultivo / género")
+            st.bar_chart(visitas_gen.set_index("Género")["Visitas"])
 
-# Evolución temporal por mes
 df["Mes"] = df["Fecha"].dt.to_period("M").astype(str)
-visitas_mes = df.groupby("Mes", as_index=False).size().rename(columns={"size": "Visitas"})
-fig_mes = px.line(
-    visitas_mes,
-    x="Mes",
-    y="Visitas",
-    markers=True,
-    title="Evolución mensual de visitas",
+visitas_mes = (
+    df.groupby("Mes", as_index=False)
+    .size()
+    .rename(columns={"size": "Visitas"})
+    .sort_values("Mes")
 )
-st.plotly_chart(fig_mes, use_container_width=True)
+
+if HAS_PLOTLY:
+    fig_mes = px.line(
+        visitas_mes,
+        x="Mes",
+        y="Visitas",
+        markers=True,
+        title="Evolución mensual de visitas",
+    )
+    st.plotly_chart(fig_mes, use_container_width=True)
+else:
+    st.subheader("Evolución mensual de visitas")
+    st.line_chart(visitas_mes.set_index("Mes")["Visitas"])
 
 # Tabla de detalle
 cols_visibles = [
