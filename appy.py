@@ -87,9 +87,9 @@ FUENTES = {
     },
     "Previsiones": {
         "file_id": "1O3cZG22pczeI4OgDHvXe0yF9nwTNc_u4f3L9k6t0Ch8",
-        "pestana": "Entregas",  # Nombre exacto de la pestaña
+        "pestana": "Entregas",
         "formato": "xlsx_drive",
-        "tipo": "calidad",  # O el tipo de vista que quieras usar o crear
+        "tipo": "entregas",
         "archivo_local": "DB_CalidadACL.xlsx",
         "secreto": "gcp_service_account",
     },
@@ -312,6 +312,32 @@ def limpiar_produccion(df_raw: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def limpiar_entregas(df_raw: pd.DataFrame) -> pd.DataFrame:
+    df = df_raw.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+
+    if "ID_Entrega" in df.columns:
+        df = df.dropna(subset=["ID_Entrega"])
+        df = df[df["ID_Entrega"].astype(str).str.strip() != ""]
+
+    col_fecha = buscar_columna(df, ["Fecha_", "FECHA", "Fecha"])
+    if col_fecha:
+        df["Fecha_"] = pd.to_datetime(df[col_fecha], errors="coerce", dayfirst=True)
+        df = df.dropna(subset=["Fecha_"])
+        df = df.sort_values("Fecha_", ascending=False)
+
+    for col in ["Kg", "Kg_Entregados", "Dif_Kg", "Semana"]:
+        if col in df.columns:
+            df[col] = limpiar_numero_es(df[col])
+
+    for col in ["Gestion", "Campaña", "Responsable", "Nombre", "Producto", "Calibre", "Ubicacion"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+            df.loc[df[col].isin(["nan", "None", ""]), col] = None
+
+    return df
+
+
 # ---------------------------------------------------------
 # 4. BARRA LATERAL Y CARGA DE FUENTE
 # ---------------------------------------------------------
@@ -335,6 +361,11 @@ if st.sidebar.button("Actualizar datos", use_container_width=True):
     st.rerun()
 
 secreto_actual = cfg.get("secreto", "gcp_service_account")
+correo_cuenta_servicio = (
+    st.secrets.get(secreto_actual, {}).get("client_email", secreto_actual)
+    if secreto_actual in st.secrets
+    else secreto_actual
+)
 
 try:
     if origen == "Google Drive / Sheets":
@@ -352,15 +383,15 @@ try:
 except HttpError as e:
     st.error(f"Error de Google Drive ({e.resp.status}) en '{fuente_seleccionada}': {e}")
     st.info(
-        "Revisa el ID del archivo, que esté compartido como Lector con la cuenta de servicio "
-        "correspondiente y que Google Drive API esté habilitada."
+        f"Revisa el ID del archivo, que esté compartido como Lector con `{correo_cuenta_servicio}` "
+        "y que Google Drive API esté habilitada."
     )
     st.stop()
 except Exception as e:
     st.error(f"No se pudo cargar '{fuente_seleccionada}' ({cfg['pestana']}): {e}")
     st.info(
-        "Revisa el ID del archivo, el nombre de la pestaña, los permisos de compartición "
-        "y la configuración de st.secrets."
+        f"Revisa el ID del archivo, el nombre de la pestaña, que esté compartido con "
+        f"`{correo_cuenta_servicio}` y que `st.secrets['{secreto_actual}']` esté configurado."
     )
     st.stop()
 
@@ -525,7 +556,7 @@ if cfg["tipo"] == "visitas":
 # ---------------------------------------------------------
 # 6. VISTA B: PRODUCCIÓN Y CONFECCIÓN (HOJA1)
 # ---------------------------------------------------------
-else:
+elif cfg["tipo"] == "produccion":
     df = limpiar_produccion(df_raw)
     st.title("Cuadro de Mandos — Producción y Confección")
     st.caption("Coste medio de mano de obra (TOTAL IMPORTES / TOTAL KG CONFECCIONADOS) y control de personal")
@@ -600,7 +631,6 @@ else:
 
     st.divider()
 
-    # Gráfico 1 y Gráfico 2: Por familia de producto y por jefa de línea
     g1, g2 = st.columns(2)
 
     with g1:
@@ -649,7 +679,6 @@ else:
 
     st.divider()
 
-    # Gráfico 3 y Gráfico 4: Coste medio semanal y comparativa con años anteriores
     g3, g4 = st.columns(2)
 
     with g3:
@@ -718,3 +747,127 @@ else:
 
     with st.expander("Detalle de producción filtrada", expanded=True):
         st.dataframe(df, use_container_width=True, hide_index=True)
+
+
+# ---------------------------------------------------------
+# 7. VISTA C: PREVISIONES / ENTREGAS
+# ---------------------------------------------------------
+else:
+    df = limpiar_entregas(df_raw)
+    st.title("Cuadro de Mandos — Previsiones y Entregas")
+    st.caption("Seguimiento de kilos previstos, kilos entregados y desviaciones")
+
+    with st.container(border=True):
+        st.subheader("Filtros")
+        f1, f2, f3, f4 = st.columns(4)
+
+        with f1:
+            if "Campaña" in df.columns and df["Campaña"].notna().any():
+                campanas = sorted(df["Campaña"].dropna().unique())
+                campanas_sel = st.multiselect("Campaña", campanas, default=campanas)
+                if campanas_sel:
+                    df = df[df["Campaña"].isin(campanas_sel)]
+
+        with f2:
+            if "Gestion" in df.columns and df["Gestion"].notna().any():
+                gestiones = sorted(df["Gestion"].dropna().unique())
+                gestiones_sel = st.multiselect("Gestión", gestiones, default=[])
+                if gestiones_sel:
+                    df = df[df["Gestion"].isin(gestiones_sel)]
+
+        with f3:
+            if "Producto" in df.columns and df["Producto"].notna().any():
+                productos = sorted(df["Producto"].dropna().unique())
+                productos_sel = st.multiselect("Producto", productos, default=[])
+                if productos_sel:
+                    df = df[df["Producto"].isin(productos_sel)]
+
+        with f4:
+            if "Responsable" in df.columns and df["Responsable"].notna().any():
+                responsables = sorted(df["Responsable"].dropna().unique())
+                responsables_sel = st.multiselect("Responsable", responsables, default=[])
+                if responsables_sel:
+                    df = df[df["Responsable"].isin(responsables_sel)]
+
+    st.caption(f"Registros filtrados: {len(df):,}")
+    if df.empty:
+        st.warning("No hay registros que coincidan con los filtros seleccionados.")
+        st.stop()
+
+    kg_prev = df["Kg"].sum() if "Kg" in df.columns else 0.0
+    kg_ent = df["Kg_Entregados"].sum() if "Kg_Entregados" in df.columns else 0.0
+    dif_kg = df["Dif_Kg"].sum() if "Dif_Kg" in df.columns else (kg_ent - kg_prev)
+    pct_cumpl = (kg_ent / kg_prev * 100) if kg_prev > 0 else 0.0
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Total Kg Previstos", f"{kg_prev:,.0f} kg")
+    k2.metric("Total Kg Entregados", f"{kg_ent:,.0f} kg")
+    k3.metric("Diferencia Kg", f"{dif_kg:,.0f} kg")
+    k4.metric("Cumplimiento", f"{pct_cumpl:.1f}%")
+
+    st.divider()
+
+    g1, g2 = st.columns(2)
+    with g1:
+        if "Producto" in df.columns and "Kg" in df.columns and "Kg_Entregados" in df.columns:
+            df_prod = (
+                df.dropna(subset=["Producto"])
+                .groupby("Producto", as_index=False)[["Kg", "Kg_Entregados"]]
+                .sum()
+                .sort_values("Kg", ascending=False)
+            )
+            df_melt = df_prod.melt(
+                id_vars="Producto",
+                value_vars=["Kg", "Kg_Entregados"],
+                var_name="Concepto",
+                value_name="Kilos",
+            )
+            if HAS_PLOTLY:
+                st.plotly_chart(
+                    px.bar(
+                        df_melt,
+                        x="Producto",
+                        y="Kilos",
+                        color="Concepto",
+                        barmode="group",
+                        title="Kg previstos vs. entregados por producto",
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.subheader("Kg previstos vs. entregados por producto")
+                st.bar_chart(df_prod.set_index("Producto")[["Kg", "Kg_Entregados"]])
+
+    with g2:
+        if "Fecha_" in df.columns and "Kg" in df.columns:
+            df["Semana_inicio"] = (
+                df["Fecha_"].dt.to_period("W").apply(lambda r: r.start_time.strftime("%Y-%m-%d"))
+            )
+            cols_sem = ["Kg"] + (["Kg_Entregados"] if "Kg_Entregados" in df.columns else [])
+            df_sem = df.groupby("Semana_inicio", as_index=False)[cols_sem].sum().sort_values("Semana_inicio")
+            if HAS_PLOTLY:
+                st.plotly_chart(
+                    px.line(
+                        df_sem,
+                        x="Semana_inicio",
+                        y=cols_sem,
+                        markers=True,
+                        title="Evolución semanal de kilos",
+                        labels={"Semana_inicio": "Semana (inicio)", "value": "Kilos"},
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.subheader("Evolución semanal de kilos")
+                st.line_chart(df_sem.set_index("Semana_inicio")[cols_sem])
+
+    cols_visibles = [
+        c for c in [
+            "Fecha_", "Campaña", "Gestion", "Responsable", "Semana",
+            "Nombre", "Producto", "Kg", "Kg_Entregados", "Dif_Kg",
+            "Calibre", "Ubicacion", "Observaciones"
+        ]
+        if c in df.columns
+    ]
+    with st.expander("Detalle de previsiones y entregas", expanded=True):
+        st.dataframe(df[cols_visibles], use_container_width=True, hide_index=True)
