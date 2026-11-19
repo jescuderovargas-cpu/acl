@@ -10,16 +10,27 @@ except ImportError:
     HAS_PLOTLY = False
 
 # ---------------------------------------------------------
-# 1. CONFIGURACIÓN GENERAL
+# 1. CONFIGURACIÓN GENERAL Y FUENTES DE DATOS
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Cuadro de Mandos — Registro de Visitas",
-    page_icon="🌿",
+    page_title="Cuadro de Mandos",
+    page_icon="📊",
     layout="wide",
 )
 
-SHEET_ID = "1Sm-0JmTghLfQczZ3k-W57JNZRbH10waNQj6HVOXZdgk"
-NOMBRE_PESTANA = "Registro visitas"
+FUENTES_GSHEETS = {
+    "Registro visitas": {
+        "sheet_id": "1Sm-0JmTghLfQczZ3k-W57JNZRbH10waNQj6HVOXZdgk",
+        "pestana": "Registro visitas",
+        "tipo": "visitas",
+    },
+    "Producción y Confección (Hoja1)": {
+        "sheet_id": "11snS_ZAfyZY7ZMnTOe2QwvbXNYGTN8hl",
+        "pestana": "Hoja1",
+        "tipo": "produccion",
+    },
+}
+
 ARCHIVO_LOCAL_FALLBACK = "Tecnicos.xlsx"
 
 
@@ -51,19 +62,31 @@ def cargar_datos_excel_local(ruta_excel: str, pestana: str) -> pd.DataFrame:
     return pd.read_excel(ruta_excel, sheet_name=pestana)
 
 
+def limpiar_numero_es(serie: pd.Series) -> pd.Series:
+    if pd.api.types.is_numeric_dtype(serie):
+        return serie.fillna(0.0)
+    limpio = (
+        serie.astype(str)
+        .str.strip()
+        .str.replace("\u00a0", "", regex=False)
+        .str.replace(".", "", regex=False)
+        .str.replace(",", ".", regex=False)
+    )
+    return pd.to_numeric(limpio, errors="coerce").fillna(0.0)
+
+
 def limpiar_visitas(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.copy()
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Eliminar filas vacías sin Id ni Fecha
     if "Id" in df.columns and "Fecha" in df.columns:
         df = df.dropna(subset=["Id", "Fecha"], how="all")
         df = df[df["Id"].astype(str).str.strip() != ""]
 
-    # Convertir fechas y semana
     if "Fecha" in df.columns:
         df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce")
         df = df.dropna(subset=["Fecha"])
+        df = df.sort_values("Fecha", ascending=False)
 
     if "Próxima visita" in df.columns:
         df["Próxima visita"] = pd.to_datetime(df["Próxima visita"], errors="coerce")
@@ -71,13 +94,11 @@ def limpiar_visitas(df_raw: pd.DataFrame) -> pd.DataFrame:
     if "Semana" in df.columns:
         df["Semana"] = pd.to_numeric(df["Semana"], errors="coerce")
 
-    # Limpiar espacios en campos clave
     for col in ["Técnico/a", "Agricultor/a", "Tipo de agricultor", "Género", "Campaña"]:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
             df.loc[df[col].isin(["nan", "None", ""]), col] = None
 
-    # Indicadores de adjuntos
     df["Tiene foto"] = (
         df["Adjuntar foto"].notna() & (df["Adjuntar foto"].astype(str).str.strip() != "")
         if "Adjuntar foto" in df.columns
@@ -88,14 +109,51 @@ def limpiar_visitas(df_raw: pd.DataFrame) -> pd.DataFrame:
         if "Adjuntar archivo" in df.columns
         else False
     )
+    return df
 
-    return df.sort_values("Fecha", ascending=False)
+
+def limpiar_produccion(df_raw: pd.DataFrame) -> pd.DataFrame:
+    df = df_raw.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+
+    if "FECHA" in df.columns:
+        df["FECHA"] = pd.to_datetime(df["FECHA"], errors="coerce", dayfirst=True)
+        df = df.dropna(subset=["FECHA"])
+        df = df.sort_values("FECHA", ascending=False)
+
+    for col in [
+        "KG MOVIDOS",
+        "KG CONFECCIONADOS 1",
+        "KG CONFECCIONADOS 2",
+        "KG CONFECCIONADOS 3",
+        "TOTAL KG CONFECCIONADOS",
+        "TOTAL IMPORTE",
+        "TOTAL IMPORTE EXTRA",
+        "TOTAL IMPORTES",
+        "COSTE MO",
+        "Coste Mo Estimado",
+    ]:
+        if col in df.columns:
+            df[col] = limpiar_numero_es(df[col])
+
+    for col in ["LINEA PRODUCCIÓN", "RESPONSABLE LINEA", "GÉNERO", "CLIENTE", "Campaña"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+            df.loc[df[col].isin(["nan", "None", ""]), col] = None
+
+    return df
 
 
 # ---------------------------------------------------------
-# 3. BARRA LATERAL (ORIGEN Y ACTUALIZACIÓN)
+# 3. BARRA LATERAL
 # ---------------------------------------------------------
 st.sidebar.title("⚙️ Configuración")
+
+fuente_seleccionada = st.sidebar.selectbox(
+    "Selecciona hoja",
+    options=list(FUENTES_GSHEETS.keys()),
+    index=0,
+)
 
 origen = st.sidebar.radio(
     "Origen de datos",
@@ -107,183 +165,284 @@ if st.sidebar.button("🔄 Actualizar datos", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
+cfg = FUENTES_GSHEETS[fuente_seleccionada]
+
 try:
     if origen == "Google Sheets":
-        df_raw = cargar_datos_gsheet(SHEET_ID, NOMBRE_PESTANA)
+        df_raw = cargar_datos_gsheet(cfg["sheet_id"], cfg["pestana"])
     else:
-        df_raw = cargar_datos_excel_local(ARCHIVO_LOCAL_FALLBACK, NOMBRE_PESTANA)
+        df_raw = cargar_datos_excel_local(ARCHIVO_LOCAL_FALLBACK, cfg["pestana"])
 except Exception as e:
-    st.error(f"No se pudo cargar '{NOMBRE_PESTANA}': {e}")
+    st.error(f"No se pudo cargar '{fuente_seleccionada}' ({cfg['pestana']}): {e}")
     st.info(
-        "Revisa el ID del Sheet, el nombre de la pestaña, que esté compartida con "
-        "`firebase-app-hosting-compute@studio-5810984322-26d93.iam.gserviceaccount.com` "
-        "y que `st.secrets['gcp_service_account']` esté configurado."
+        "Si el archivo en Drive es `.xlsx`, ábrelo y guárdalo como hoja de cálculo de Google, "
+        "y compártelo con `firebase-app-hosting-compute@studio-5810984322-26d93.iam.gserviceaccount.com`."
     )
     st.stop()
 
-df = limpiar_visitas(df_raw)
-if df.empty:
-    st.warning("No hay registros válidos tras la limpieza.")
+if df_raw.empty:
+    st.warning("La hoja seleccionada no tiene datos.")
     st.stop()
 
 
 # ---------------------------------------------------------
-# 4. CABECERA Y FILTROS EN LA PARTE SUPERIOR
+# 4. VISTA A: REGISTRO DE VISITAS
 # ---------------------------------------------------------
-st.title("📋 Cuadro de Mandos — Registro de Visitas")
+if cfg["tipo"] == "visitas":
+    df = limpiar_visitas(df_raw)
+    st.title("📋 Cuadro de Mandos — Registro de Visitas")
 
-with st.container(border=True):
-    st.subheader("🔎 Filtros")
-    f1, f2, f3, f4 = st.columns(4)
+    with st.container(border=True):
+        st.subheader("🔎 Filtros")
+        f1, f2, f3, f4 = st.columns(4)
 
-    with f1:
-        if "Campaña" in df.columns and df["Campaña"].notna().any():
-            campanas = sorted(df["Campaña"].dropna().unique())
-            campanas_sel = st.multiselect("Campaña", campanas, default=campanas)
-            if campanas_sel:
-                df = df[df["Campaña"].isin(campanas_sel)]
+        with f1:
+            if "Campaña" in df.columns and df["Campaña"].notna().any():
+                campanas = sorted(df["Campaña"].dropna().unique())
+                campanas_sel = st.multiselect("Campaña", campanas, default=campanas)
+                if campanas_sel:
+                    df = df[df["Campaña"].isin(campanas_sel)]
 
-    with f2:
-        if "Técnico/a" in df.columns and df["Técnico/a"].notna().any():
-            tecnicos = sorted(df["Técnico/a"].dropna().unique())
-            tecnicos_sel = st.multiselect("Técnico/a", tecnicos, default=tecnicos)
-            if tecnicos_sel:
-                df = df[df["Técnico/a"].isin(tecnicos_sel)]
+        with f2:
+            if "Técnico/a" in df.columns and df["Técnico/a"].notna().any():
+                tecnicos = sorted(df["Técnico/a"].dropna().unique())
+                tecnicos_sel = st.multiselect("Técnico/a", tecnicos, default=tecnicos)
+                if tecnicos_sel:
+                    df = df[df["Técnico/a"].isin(tecnicos_sel)]
 
-    with f3:
-        if "Género" in df.columns and df["Género"].notna().any():
-            generos = sorted(df["Género"].dropna().unique())
-            generos_sel = st.multiselect(
-                "Cultivo / Género",
-                generos,
-                default=[],
-                placeholder="Todos los cultivos",
+        with f3:
+            if "Género" in df.columns and df["Género"].notna().any():
+                generos = sorted(df["Género"].dropna().unique())
+                generos_sel = st.multiselect(
+                    "Cultivo / Género", generos, default=[], placeholder="Todos los cultivos"
+                )
+                if generos_sel:
+                    df = df[df["Género"].isin(generos_sel)]
+
+        with f4:
+            if "Tipo de agricultor" in df.columns and df["Tipo de agricultor"].notna().any():
+                tipos = sorted(df["Tipo de agricultor"].dropna().unique())
+                tipos_sel = st.multiselect(
+                    "Tipo de agricultor", tipos, default=[], placeholder="Todos los tipos"
+                )
+                if tipos_sel:
+                    df = df[df["Tipo de agricultor"].isin(tipos_sel)]
+
+    st.caption(f"Registros filtrados: **{len(df):,}**")
+    if df.empty:
+        st.warning("No hay registros que coincidan con los filtros seleccionados.")
+        st.stop()
+
+    total_visitas = len(df)
+    agricultores_unicos = df["Agricultor/a"].nunique() if "Agricultor/a" in df.columns else 0
+    tecnicos_activos = df["Técnico/a"].nunique() if "Técnico/a" in df.columns else 0
+    pct_fotos = (df["Tiene foto"].mean() * 100) if total_visitas > 0 else 0.0
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Total Visitas", f"{total_visitas:,}")
+    k2.metric("Agricultores Visitados", f"{agricultores_unicos:,}")
+    k3.metric("Técnicos Activos", f"{tecnicos_activos:,}")
+    k4.metric("Visitas con Foto", f"{pct_fotos:.1f}%")
+
+    st.divider()
+
+    df["Mes"] = df["Fecha"].dt.to_period("M").astype(str)
+    visitas_mes = (
+        df.groupby("Mes", as_index=False)
+        .size()
+        .rename(columns={"size": "Visitas"})
+        .sort_values("Mes")
+    )
+
+    col_izq, col_der = st.columns(2)
+    with col_izq:
+        if "Técnico/a" in df.columns:
+            conteo_col = "Id" if "Id" in df.columns else df.columns[0]
+            visitas_tec = (
+                df.groupby("Técnico/a", as_index=False)
+                .agg(Visitas=(conteo_col, "count"))
+                .sort_values("Visitas", ascending=False)
             )
-            if generos_sel:
-                df = df[df["Género"].isin(generos_sel)]
+            if HAS_PLOTLY:
+                st.plotly_chart(
+                    px.bar(visitas_tec, x="Técnico/a", y="Visitas", title="Visitas por técnico/a", text_auto=True),
+                    use_container_width=True,
+                )
+            else:
+                st.subheader("Visitas por técnico/a")
+                st.bar_chart(visitas_tec.set_index("Técnico/a")["Visitas"])
 
-    with f4:
-        if "Tipo de agricultor" in df.columns and df["Tipo de agricultor"].notna().any():
-            tipos = sorted(df["Tipo de agricultor"].dropna().unique())
-            tipos_sel = st.multiselect(
-                "Tipo de agricultor",
-                tipos,
-                default=[],
-                placeholder="Todos los tipos",
+    with col_der:
+        if HAS_PLOTLY:
+            st.plotly_chart(
+                px.bar(visitas_mes, x="Mes", y="Visitas", title="Visitas por mes", text_auto=True),
+                use_container_width=True,
             )
-            if tipos_sel:
-                df = df[df["Tipo de agricultor"].isin(tipos_sel)]
+        else:
+            st.subheader("Visitas por mes")
+            st.bar_chart(visitas_mes.set_index("Mes")["Visitas"])
 
-st.caption(f"Registros filtrados: **{len(df):,}**")
+    df["Semana_inicio"] = (
+        df["Fecha"].dt.to_period("W").apply(lambda r: r.start_time.strftime("%Y-%m-%d"))
+    )
+    df_tec_sem = df.dropna(subset=["Técnico/a"]) if "Técnico/a" in df.columns else df.copy()
+    visitas_sem_tec = (
+        df_tec_sem.groupby(["Semana_inicio", "Técnico/a"], as_index=False)
+        .size()
+        .rename(columns={"size": "Visitas"})
+        .sort_values("Semana_inicio")
+    )
 
-if not HAS_PLOTLY:
-    st.caption("Mostrando gráficos nativos de Streamlit (añade `plotly` a `requirements.txt` y reinicia la app para usar Plotly).")
+    if HAS_PLOTLY:
+        st.plotly_chart(
+            px.line(
+                visitas_sem_tec,
+                x="Semana_inicio",
+                y="Visitas",
+                color="Técnico/a",
+                markers=True,
+                title="Evolución semanal de visitas por técnico/a",
+                labels={"Semana_inicio": "Semana (inicio)"},
+            ),
+            use_container_width=True,
+        )
+    else:
+        st.subheader("Evolución semanal de visitas por técnico/a")
+        piv_sem = visitas_sem_tec.pivot(index="Semana_inicio", columns="Técnico/a", values="Visitas").fillna(0)
+        st.line_chart(piv_sem)
 
-if df.empty:
-    st.warning("No hay registros que coincidan con los filtros seleccionados.")
-    st.stop()
+    cols_visibles = [
+        c for c in [
+            "Fecha", "hora registro", "Campaña", "Semana", "Técnico/a",
+            "Agricultor/a", "Tipo de agricultor", "Género",
+            "Próxima visita", "Anotaciones", "Tiene foto", "Tiene archivo"
+        ]
+        if c in df.columns
+    ]
+    with st.expander("Ver detalle de visitas filtradas", expanded=True):
+        st.dataframe(df[cols_visibles], use_container_width=True, hide_index=True)
 
 
 # ---------------------------------------------------------
-# 5. KPIs Y GRÁFICOS
+# 5. VISTA B: PRODUCCIÓN Y CONFECCIÓN (HOJA1)
 # ---------------------------------------------------------
-total_visitas = len(df)
-agricultores_unicos = df["Agricultor/a"].nunique() if "Agricultor/a" in df.columns else 0
-tecnicos_activos = df["Técnico/a"].nunique() if "Técnico/a" in df.columns else 0
-pct_fotos = (df["Tiene foto"].mean() * 100) if total_visitas > 0 else 0.0
+else:
+    df = limpiar_produccion(df_raw)
+    st.title("🏭 Cuadro de Mandos — Producción y Confección")
 
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total Visitas", f"{total_visitas:,}")
-k2.metric("Agricultores Visitados", f"{agricultores_unicos:,}")
-k3.metric("Técnicos Activos", f"{tecnicos_activos:,}")
-k4.metric("Visitas con Foto", f"{pct_fotos:.1f}%")
+    with st.container(border=True):
+        st.subheader("🔎 Filtros")
+        f1, f2, f3, f4 = st.columns(4)
 
-st.divider()
+        with f1:
+            if "Campaña" in df.columns and df["Campaña"].notna().any():
+                campanas = sorted(df["Campaña"].dropna().unique())
+                campanas_sel = st.multiselect("Campaña", campanas, default=campanas)
+                if campanas_sel:
+                    df = df[df["Campaña"].isin(campanas_sel)]
 
-df["Mes"] = df["Fecha"].dt.to_period("M").astype(str)
-visitas_mes = (
-    df.groupby("Mes", as_index=False)
-    .size()
-    .rename(columns={"size": "Visitas"})
-    .sort_values("Mes")
-)
+        with f2:
+            if "LINEA PRODUCCIÓN" in df.columns and df["LINEA PRODUCCIÓN"].notna().any():
+                lineas = sorted(df["LINEA PRODUCCIÓN"].dropna().unique())
+                lineas_sel = st.multiselect("Línea de producción", lineas, default=[])
+                if lineas_sel:
+                    df = df[df["LINEA PRODUCCIÓN"].isin(lineas_sel)]
 
-col_izq, col_der = st.columns(2)
+        with f3:
+            if "GÉNERO" in df.columns and df["GÉNERO"].notna().any():
+                generos = sorted(df["GÉNERO"].dropna().unique())
+                generos_sel = st.multiselect("Género", generos, default=[])
+                if generos_sel:
+                    df = df[df["GÉNERO"].isin(generos_sel)]
 
-with col_izq:
-    if "Técnico/a" in df.columns:
-        visitas_tec = (
-            df.groupby("Técnico/a", as_index=False)
-            .agg(Visitas=("Id", "count"), Agricultores=("Agricultor/a", "nunique"))
-            .sort_values("Visitas", ascending=False)
+        with f4:
+            if "CLIENTE" in df.columns and df["CLIENTE"].notna().any():
+                clientes = sorted(df["CLIENTE"].dropna().unique())
+                clientes_sel = st.multiselect("Cliente", clientes, default=[])
+                if clientes_sel:
+                    df = df[df["CLIENTE"].isin(clientes_sel)]
+
+    st.caption(f"Registros filtrados: **{len(df):,}**")
+    if df.empty:
+        st.warning("No hay registros que coincidan con los filtros seleccionados.")
+        st.stop()
+
+    kg_mov = df["KG MOVIDOS"].sum() if "KG MOVIDOS" in df.columns else 0.0
+    kg_conf = df["TOTAL KG CONFECCIONADOS"].sum() if "TOTAL KG CONFECCIONADOS" in df.columns else 0.0
+    imp_tot = df["TOTAL IMPORTES"].sum() if "TOTAL IMPORTES" in df.columns else 0.0
+    coste_kg = (imp_tot / kg_conf) if kg_conf > 0 else 0.0
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Kg Movidos", f"{kg_mov:,.0f} kg")
+    k2.metric("Total Kg Confeccionados", f"{kg_conf:,.0f} kg")
+    k3.metric("Total Importes", f"{imp_tot:,.2f} €")
+    k4.metric("Coste Medio (€/kg conf.)", f"{coste_kg:,.3f} €/kg")
+
+    st.divider()
+
+    col_izq, col_der = st.columns(2)
+    with col_izq:
+        if "LINEA PRODUCCIÓN" in df.columns and "TOTAL KG CONFECCIONADOS" in df.columns:
+            por_linea = (
+                df.groupby("LINEA PRODUCCIÓN", as_index=False)["TOTAL KG CONFECCIONADOS"]
+                .sum()
+                .sort_values("TOTAL KG CONFECCIONADOS", ascending=False)
+            )
+            if HAS_PLOTLY:
+                st.plotly_chart(
+                    px.bar(
+                        por_linea,
+                        x="LINEA PRODUCCIÓN",
+                        y="TOTAL KG CONFECCIONADOS",
+                        title="Kg confeccionados por línea de producción",
+                        text_auto=".2s",
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.subheader("Kg confeccionados por línea de producción")
+                st.bar_chart(por_linea.set_index("LINEA PRODUCCIÓN")["TOTAL KG CONFECCIONADOS"])
+
+    with col_der:
+        if "FECHA" in df.columns and "TOTAL IMPORTES" in df.columns:
+            df["Mes"] = df["FECHA"].dt.to_period("M").astype(str)
+            por_mes = df.groupby("Mes", as_index=False)["TOTAL IMPORTES"].sum().sort_values("Mes")
+            if HAS_PLOTLY:
+                st.plotly_chart(
+                    px.bar(por_mes, x="Mes", y="TOTAL IMPORTES", title="Importes por mes (€)", text_auto=".2s"),
+                    use_container_width=True,
+                )
+            else:
+                st.subheader("Importes por mes (€)")
+                st.bar_chart(por_mes.set_index("Mes")["TOTAL IMPORTES"])
+
+    if "FECHA" in df.columns and "LINEA PRODUCCIÓN" in df.columns and "TOTAL KG CONFECCIONADOS" in df.columns:
+        df["Semana_inicio"] = (
+            df["FECHA"].dt.to_period("W").apply(lambda r: r.start_time.strftime("%Y-%m-%d"))
+        )
+        sem_linea = (
+            df.dropna(subset=["LINEA PRODUCCIÓN"])
+            .groupby(["Semana_inicio", "LINEA PRODUCCIÓN"], as_index=False)["TOTAL KG CONFECCIONADOS"]
+            .sum()
+            .sort_values("Semana_inicio")
         )
         if HAS_PLOTLY:
-            fig_tec = px.bar(
-                visitas_tec,
-                x="Técnico/a",
-                y="Visitas",
-                hover_data=["Agricultores"],
-                title="Visitas por técnico/a",
-                text_auto=True,
+            st.plotly_chart(
+                px.line(
+                    sem_linea,
+                    x="Semana_inicio",
+                    y="TOTAL KG CONFECCIONADOS",
+                    color="LINEA PRODUCCIÓN",
+                    markers=True,
+                    title="Evolución semanal de kg confeccionados por línea",
+                    labels={"Semana_inicio": "Semana (inicio)"},
+                ),
+                use_container_width=True,
             )
-            st.plotly_chart(fig_tec, use_container_width=True)
         else:
-            st.subheader("Visitas por técnico/a")
-            st.bar_chart(visitas_tec.set_index("Técnico/a")["Visitas"])
+            st.subheader("Evolución semanal de kg confeccionados por línea")
+            piv_l = sem_linea.pivot(index="Semana_inicio", columns="LINEA PRODUCCIÓN", values="TOTAL KG CONFECCIONADOS").fillna(0)
+            st.line_chart(piv_l)
 
-with col_der:
-    if HAS_PLOTLY:
-        fig_mes_bar = px.bar(
-            visitas_mes,
-            x="Mes",
-            y="Visitas",
-            title="Visitas por mes",
-            text_auto=True,
-        )
-        st.plotly_chart(fig_mes_bar, use_container_width=True)
-    else:
-        st.subheader("Visitas por mes")
-        st.bar_chart(visitas_mes.set_index("Mes")["Visitas"])
-
-# Evolución semanal por técnico/a (fecha de inicio de semana)
-df["Semana_inicio"] = (
-    df["Fecha"].dt.to_period("W").apply(lambda r: r.start_time.strftime("%Y-%m-%d"))
-)
-df_tec_sem = df.dropna(subset=["Técnico/a"]) if "Técnico/a" in df.columns else df.copy()
-visitas_sem_tec = (
-    df_tec_sem.groupby(["Semana_inicio", "Técnico/a"], as_index=False)
-    .size()
-    .rename(columns={"size": "Visitas"})
-    .sort_values("Semana_inicio")
-)
-
-if HAS_PLOTLY:
-    fig_sem = px.line(
-        visitas_sem_tec,
-        x="Semana_inicio",
-        y="Visitas",
-        color="Técnico/a",
-        markers=True,
-        title="Evolución semanal de visitas por técnico/a",
-        labels={"Semana_inicio": "Semana (inicio)"},
-    )
-    st.plotly_chart(fig_sem, use_container_width=True)
-else:
-    st.subheader("Evolución semanal de visitas por técnico/a")
-    piv_sem = visitas_sem_tec.pivot(
-        index="Semana_inicio", columns="Técnico/a", values="Visitas"
-    ).fillna(0)
-    st.line_chart(piv_sem)
-
-# Tabla de detalle
-cols_visibles = [
-    c for c in [
-        "Fecha", "hora registro", "Campaña", "Semana", "Técnico/a",
-        "Agricultor/a", "Tipo de agricultor", "Género",
-        "Próxima visita", "Anotaciones", "Tiene foto", "Tiene archivo"
-    ]
-    if c in df.columns
-]
-
-with st.expander("Ver detalle de visitas filtradas", expanded=True):
-    st.dataframe(df[cols_visibles], use_container_width=True, hide_index=True)
+    with st.expander("Ver detalle de producción filtrada", expanded=True):
+        st.dataframe(df, use_container_width=True, hide_index=True)
