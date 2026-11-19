@@ -36,6 +36,7 @@ FUENTES = {
         "formato": "gsheet",  # "gsheet", "xlsx_drive" o "auto"
         "tipo": "visitas",
         "archivo_local": "Tecnicos.xlsx",
+        "secreto": "gcp_service_account",
     },
     "Producción y Confección (Hoja1)": {
         "file_id": "11snS_ZAfyZY7ZMnTOe2QwvbXNYGTN8hl",
@@ -43,6 +44,7 @@ FUENTES = {
         "formato": "xlsx_drive",
         "tipo": "produccion",
         "archivo_local": "prueba (1).xlsx",
+        "secreto": "gcp_service_account",
     },
 }
 
@@ -51,25 +53,32 @@ FUENTES = {
 # 2. CONEXIÓN Y CARGA CON CACHÉ
 # ---------------------------------------------------------
 @st.cache_resource
-def obtener_credenciales():
+def obtener_credenciales(secreto_key: str = "gcp_service_account"):
+    if secreto_key not in st.secrets:
+        raise KeyError(f"No se encontró `st.secrets['{secreto_key}']`.")
     return Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
+        st.secrets[secreto_key],
         scopes=SCOPES,
     )
 
 
 @st.cache_resource
-def conectar_gsheets():
-    return gspread.authorize(obtener_credenciales())
+def conectar_gsheets(secreto_key: str = "gcp_service_account"):
+    return gspread.authorize(obtener_credenciales(secreto_key))
 
 
 @st.cache_resource
-def conectar_drive():
-    return build("drive", "v3", credentials=obtener_credenciales(), cache_discovery=False)
+def conectar_drive(secreto_key: str = "gcp_service_account"):
+    return build(
+        "drive",
+        "v3",
+        credentials=obtener_credenciales(secreto_key),
+        cache_discovery=False,
+    )
 
 
-def descargar_xlsx_bytes(file_id: str) -> io.BytesIO:
-    drive_service = conectar_drive()
+def descargar_xlsx_bytes(file_id: str, secreto_key: str = "gcp_service_account") -> io.BytesIO:
+    drive_service = conectar_drive(secreto_key)
     request = drive_service.files().get_media(fileId=file_id, supportsAllDrives=True)
     fh = io.BytesIO()
     downloader = MediaIoBaseDownload(fh, request)
@@ -85,13 +94,14 @@ def cargar_hoja_inteligente(
     file_id: str,
     pestana: str,
     formato_preferido: str = "auto",
+    secreto_key: str = "gcp_service_account",
 ) -> pd.DataFrame:
     if not file_id or file_id.startswith("ID_"):
         raise ValueError("Falta configurar el ID real del archivo en FUENTES.")
 
     if formato_preferido != "xlsx_drive":
         try:
-            cliente = conectar_gsheets()
+            cliente = conectar_gsheets(secreto_key)
             ws = cliente.open_by_key(file_id).worksheet(pestana)
             return pd.DataFrame(ws.get_all_records())
         except APIError as err:
@@ -99,7 +109,7 @@ def cargar_hoja_inteligente(
             if "not be an Office file" not in msg and "Use the Drive API" not in msg:
                 raise
 
-    fh = descargar_xlsx_bytes(file_id)
+    fh = descargar_xlsx_bytes(file_id, secreto_key=secreto_key)
     return pd.read_excel(fh, sheet_name=pestana)
 
 
@@ -215,12 +225,15 @@ if st.sidebar.button("🔄 Actualizar datos", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
+secreto_actual = cfg.get("secreto", "gcp_service_account")
+
 try:
     if origen == "Google Drive / Sheets":
         df_raw = cargar_hoja_inteligente(
             cfg["file_id"],
             cfg["pestana"],
             formato_preferido=cfg.get("formato", "auto"),
+            secreto_key=secreto_actual,
         )
     else:
         ruta_local = cfg["archivo_local"]
