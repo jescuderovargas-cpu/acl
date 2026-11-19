@@ -570,13 +570,14 @@ else:
     )
     if col_personal:
         if "FECHA" in df.columns:
-            personal_val = df.groupby("FECHA")[col_personal].max().sum()
-            etiqueta_personal = "Personal (acum. diario)"
+            personal_diario = df.groupby("FECHA")[col_personal].max()
+            personal_val = personal_diario.mean() if not personal_diario.empty else 0.0
+            etiqueta_personal = "Media Personal / Día"
         else:
-            personal_val = df[col_personal].sum()
-            etiqueta_personal = "Personal"
+            personal_val = df[col_personal].mean() if not df.empty else 0.0
+            etiqueta_personal = "Media Personal"
     else:
-        personal_val = df[col_jefa].nunique() if col_jefa else 0
+        personal_val = df[col_jefa].nunique() if col_jefa else 0.0
         etiqueta_personal = "Personal / Responsables"
 
     kg_conf = df["TOTAL KG CONFECCIONADOS"].sum() if "TOTAL KG CONFECCIONADOS" in df.columns else 0.0
@@ -584,10 +585,10 @@ else:
     coste_medio_mo_kg = (imp_tot / kg_conf) if kg_conf > 0 else 0.0
 
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric(etiqueta_personal, f"{personal_val:,.0f}")
+    k1.metric(etiqueta_personal, f"{personal_val:,.1f}")
     k2.metric("Total Kg Confeccionados", f"{kg_conf:,.0f} kg")
     k3.metric("Total Importes", f"{imp_tot:,.2f} €")
-    k4.metric("Coste Medio MO (€/kg)", f"{coste_medio_mo_kg:,.3f} €/kg")
+    k4.metric("Coste Medio MO (€/kg)", f"{coste_medio_mo_kg:,.3f} €/kg"))
 
     st.divider()
 
