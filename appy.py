@@ -244,26 +244,35 @@ with col_der:
             st.subheader("Visitas por cultivo / género")
             st.bar_chart(visitas_gen.set_index("Género")["Visitas"])
 
-df["Mes"] = df["Fecha"].dt.to_period("M").astype(str)
-visitas_mes = (
-    df.groupby("Mes", as_index=False)
+# Evolución semanal por técnico/a (fecha de inicio de semana)
+df["Semana_inicio"] = (
+    df["Fecha"].dt.to_period("W").apply(lambda r: r.start_time.strftime("%Y-%m-%d"))
+)
+df_tec_sem = df.dropna(subset=["Técnico/a"]) if "Técnico/a" in df.columns else df.copy()
+visitas_sem_tec = (
+    df_tec_sem.groupby(["Semana_inicio", "Técnico/a"], as_index=False)
     .size()
     .rename(columns={"size": "Visitas"})
-    .sort_values("Mes")
+    .sort_values("Semana_inicio")
 )
 
 if HAS_PLOTLY:
-    fig_mes = px.line(
-        visitas_mes,
-        x="Mes",
+    fig_sem = px.line(
+        visitas_sem_tec,
+        x="Semana_inicio",
         y="Visitas",
+        color="Técnico/a",
         markers=True,
-        title="Evolución mensual de visitas",
+        title="Evolución semanal de visitas por técnico/a",
+        labels={"Semana_inicio": "Semana (inicio)"},
     )
-    st.plotly_chart(fig_mes, use_container_width=True)
+    st.plotly_chart(fig_sem, use_container_width=True)
 else:
-    st.subheader("Evolución mensual de visitas")
-    st.line_chart(visitas_mes.set_index("Mes")["Visitas"])
+    st.subheader("Evolución semanal de visitas por técnico/a")
+    piv_sem = visitas_sem_tec.pivot(
+        index="Semana_inicio", columns="Técnico/a", values="Visitas"
+    ).fillna(0)
+    st.line_chart(piv_sem)
 
 # Tabla de detalle
 cols_visibles = [
