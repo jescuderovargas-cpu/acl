@@ -187,6 +187,33 @@ def buscar_columna(df: pd.DataFrame, candidatos: list[str]) -> str | None:
     return None
 
 
+def calcular_coste_medio_agrupado(
+    df: pd.DataFrame,
+    grupo_cols: str | list[str],
+    col_importe: str = "TOTAL IMPORTES",
+    col_kg: str = "TOTAL KG CONFECCIONADOS",
+    nombre_metrica: str = "Coste Medio MO (€/kg)",
+) -> pd.DataFrame:
+    if isinstance(grupo_cols, str):
+        grupo_cols = [grupo_cols]
+    df_sub = df.dropna(subset=grupo_cols).copy()
+    if df_sub.empty:
+        return pd.DataFrame(columns=grupo_cols + ["Importes", "Kg Confeccionados", nombre_metrica])
+
+    agg = (
+        df_sub.groupby(grupo_cols, as_index=False)
+        .agg(
+            Importes=(col_importe, "sum"),
+            Kg_Confeccionados=(col_kg, "sum"),
+        )
+    )
+    agg[nombre_metrica] = agg.apply(
+        lambda r: (r["Importes"] / r["Kg_Confeccionados"]) if r["Kg_Confeccionados"] > 0 else 0.0,
+        axis=1,
+    )
+    return agg
+
+
 def limpiar_visitas(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.copy()
     df.columns = [str(c).strip() for c in df.columns]
@@ -257,7 +284,19 @@ def limpiar_produccion(df_raw: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = limpiar_numero_es(df[col])
 
-    for col in ["LINEA PRODUCCIÓN", "RESPONSABLE LINEA", "GÉNERO", "PRODUCTO", "ARTÍCULO", "CLIENTE", "Campaña"]:
+    for col in [
+        "FAMILIA",
+        "Familia",
+        "LINEA PRODUCCIÓN",
+        "RESPONSABLE LINEA",
+        "JEFA DE LINEA",
+        "JEFE DE LINEA",
+        "GÉNERO",
+        "PRODUCTO",
+        "ARTÍCULO",
+        "CLIENTE",
+        "Campaña",
+    ]:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
             df.loc[df[col].isin(["nan", "None", ""]), col] = None
@@ -481,7 +520,7 @@ if cfg["tipo"] == "visitas":
 else:
     df = limpiar_produccion(df_raw)
     st.title("Cuadro de Mandos — Producción y Confección")
-    st.caption("Control de kilos confeccionados, costes de mano de obra e importes")
+    st.caption("Coste medio de mano de obra (TOTAL IMPORTES / TOTAL KG CONFECCIONADOS) y control de personal")
 
     with st.container(border=True):
         st.subheader("Filtros")
@@ -501,20 +540,24 @@ else:
                 if lineas_sel:
                     df = df[df["LINEA PRODUCCIÓN"].isin(lineas_sel)]
 
-        col_producto = buscar_columna(df, ["GÉNERO", "PRODUCTO", "ARTÍCULO", "GENERO"])
+        col_familia = buscar_columna(df, ["FAMILIA", "GÉNERO", "PRODUCTO", "ARTÍCULO", "GENERO"])
         with f3:
-            if col_producto and df[col_producto].notna().any():
-                productos = sorted(df[col_producto].dropna().unique())
-                productos_sel = st.multiselect("Producto", productos, default=[])
-                if productos_sel:
-                    df = df[df[col_producto].isin(productos_sel)]
+            if col_familia and df[col_familia].notna().any():
+                familias = sorted(df[col_familia].dropna().unique())
+                familias_sel = st.multiselect("Familia de producto", familias, default=[])
+                if familias_sel:
+                    df = df[df[col_familia].isin(familias_sel)]
 
+        col_jefa = buscar_columna(
+            df,
+            ["JEFA DE LINEA", "JEFE DE LINEA", "RESPONSABLE LINEA", "RESPONSABLE", "ENCARGADA"],
+        )
         with f4:
-            if "CLIENTE" in df.columns and df["CLIENTE"].notna().any():
-                clientes = sorted(df["CLIENTE"].dropna().unique())
-                clientes_sel = st.multiselect("Cliente", clientes, default=[])
-                if clientes_sel:
-                    df = df[df["CLIENTE"].isin(clientes_sel)]
+            if col_jefa and df[col_jefa].notna().any():
+                jefas = sorted(df[col_jefa].dropna().unique())
+                jefas_sel = st.multiselect("Jefa de línea", jefas, default=[])
+                if jefas_sel:
+                    df = df[df[col_jefa].isin(jefas_sel)]
 
     st.caption(f"Registros filtrados: {len(df):,}")
     if df.empty:
@@ -533,8 +576,7 @@ else:
             personal_val = df[col_personal].sum()
             etiqueta_personal = "Personal"
     else:
-        col_resp = buscar_columna(df, ["RESPONSABLE LINEA", "RESPONSABLE"])
-        personal_val = df[col_resp].nunique() if col_resp else 0
+        personal_val = df[col_jefa].nunique() if col_jefa else 0
         etiqueta_personal = "Personal / Responsables"
 
     kg_conf = df["TOTAL KG CONFECCIONADOS"].sum() if "TOTAL KG CONFECCIONADOS" in df.columns else 0.0
@@ -549,4 +591,121 @@ else:
 
     st.divider()
 
-    col_izq, col_der = st.columns(2)
+    # Gráfico 1 y Gráfico 2: Por familia de producto y por jefa de línea
+    g1, g2 = st.columns(2)
+
+    with g1:
+        if col_familia and "TOTAL IMPORTES" in df.columns and "TOTAL KG CONFECCIONADOS" in df.columns:
+            df_fam = calcular_coste_medio_agrupado(
+                df, col_familia, nombre_metrica="Coste Medio MO (€/kg)"
+            ).sort_values("Coste Medio MO (€/kg)", ascending=False)
+            if HAS_PLOTLY:
+                st.plotly_chart(
+                    px.bar(
+                        df_fam,
+                        x=col_familia,
+                        y="Coste Medio MO (€/kg)",
+                        title="Coste medio mano de obra por familia de producto (€/kg)",
+                        text_auto=".3f",
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.subheader("Coste medio mano de obra por familia de producto (€/kg)")
+                st.bar_chart(df_fam.set_index(col_familia)["Coste Medio MO (€/kg)"])
+        else:
+            st.info("No se encuentran columnas de familia/producto, TOTAL IMPORTES o TOTAL KG CONFECCIONADOS.")
+
+    with g2:
+        if col_jefa and "TOTAL IMPORTES" in df.columns and "TOTAL KG CONFECCIONADOS" in df.columns:
+            df_jefa = calcular_coste_medio_agrupado(
+                df, col_jefa, nombre_metrica="Coste Medio MO (€/kg)"
+            ).sort_values("Coste Medio MO (€/kg)", ascending=False)
+            if HAS_PLOTLY:
+                st.plotly_chart(
+                    px.bar(
+                        df_jefa,
+                        x=col_jefa,
+                        y="Coste Medio MO (€/kg)",
+                        title="Coste medio mano de obra por jefa de línea (€/kg)",
+                        text_auto=".3f",
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.subheader("Coste medio mano de obra por jefa de línea (€/kg)")
+                st.bar_chart(df_jefa.set_index(col_jefa)["Coste Medio MO (€/kg)"])
+        else:
+            st.info("No se encuentra columna de jefa/responsable de línea.")
+
+    st.divider()
+
+    # Gráfico 3 y Gráfico 4: Coste medio semanal y comparativa con años anteriores
+    g3, g4 = st.columns(2)
+
+    with g3:
+        if "FECHA" in df.columns and "TOTAL IMPORTES" in df.columns and "TOTAL KG CONFECCIONADOS" in df.columns:
+            df["Semana_inicio"] = (
+                df["FECHA"].dt.to_period("W").apply(lambda r: r.start_time.strftime("%Y-%m-%d"))
+            )
+            df_sem = calcular_coste_medio_agrupado(
+                df, "Semana_inicio", nombre_metrica="Coste Medio MO (€/kg)"
+            ).sort_values("Semana_inicio")
+            if HAS_PLOTLY:
+                st.plotly_chart(
+                    px.line(
+                        df_sem,
+                        x="Semana_inicio",
+                        y="Coste Medio MO (€/kg)",
+                        markers=True,
+                        title="Coste medio mano de obra semanal (€/kg)",
+                        labels={"Semana_inicio": "Semana (inicio)"},
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.subheader("Coste medio mano de obra semanal (€/kg)")
+                st.line_chart(df_sem.set_index("Semana_inicio")["Coste Medio MO (€/kg)"])
+
+    with g4:
+        if "FECHA" in df.columns and "TOTAL IMPORTES" in df.columns and "TOTAL KG CONFECCIONADOS" in df.columns:
+            modo_comp = st.radio(
+                "Eje comparativa interanual",
+                options=["Mes", "Semana del año"],
+                horizontal=True,
+                index=0,
+            )
+            df["Año"] = df["FECHA"].dt.year.astype(str)
+            if modo_comp == "Mes":
+                df["Tramo_anual"] = df["FECHA"].dt.strftime("%m")
+                etiqueta_tramo = "Mes (01-12)"
+            else:
+                df["Tramo_anual"] = df["FECHA"].dt.isocalendar().week.astype(str).str.zfill(2)
+                etiqueta_tramo = "Semana del año"
+
+            df_inter = calcular_coste_medio_agrupado(
+                df, ["Tramo_anual", "Año"], nombre_metrica="Coste Medio MO (€/kg)"
+            ).sort_values(["Tramo_anual", "Año"])
+
+            if HAS_PLOTLY:
+                st.plotly_chart(
+                    px.line(
+                        df_inter,
+                        x="Tramo_anual",
+                        y="Coste Medio MO (€/kg)",
+                        color="Año",
+                        markers=True,
+                        title="Coste medio mano de obra vs. años anteriores (€/kg)",
+                        labels={"Tramo_anual": etiqueta_tramo},
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.subheader("Coste medio mano de obra vs. años anteriores (€/kg)")
+                piv_inter = df_inter.pivot(
+                    index="Tramo_anual", columns="Año", values="Coste Medio MO (€/kg)"
+                )
+                st.line_chart(piv_inter)
+
+    with st.expander("Detalle de producción filtrada", expanded=True):
+        st.dataframe(df, use_container_width=True, hide_index=True)
