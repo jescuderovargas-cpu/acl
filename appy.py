@@ -830,12 +830,21 @@ else:
     st.divider()
 
     if "Fecha_" in df.columns and "Kg" in df.columns and "Producto" in df.columns:
-        granularidad_prev = st.radio(
-            "Agrupación temporal",
-            options=["Semana", "Día"],
-            horizontal=True,
-            index=0,
-        )
+        c_g1, c_g2 = st.columns([1, 2])
+        with c_g1:
+            granularidad_prev = st.radio(
+                "Agrupación temporal",
+                options=["Semana", "Día"],
+                horizontal=True,
+                index=0,
+            )
+        with c_g2:
+            modo_barras = st.radio(
+                "Tipo de barras",
+                options=["Total por producto", "Desglosado por periodo"],
+                horizontal=True,
+                index=0,
+            )
 
         if granularidad_prev == "Día":
             df["Periodo_prev"] = df["Fecha_"].dt.strftime("%Y-%m-%d")
@@ -846,32 +855,54 @@ else:
             )
             etiqueta_per = "Semana (inicio)"
 
-        df_prev_graf = (
-            df.dropna(subset=["Producto"])
-            .groupby(["Periodo_prev", "Producto"], as_index=False)["Kg"]
-            .sum()
-            .sort_values("Periodo_prev")
-        )
+        df_prod_base = df.dropna(subset=["Producto"]).copy()
 
-        if HAS_PLOTLY:
-            st.plotly_chart(
-                px.line(
-                    df_prev_graf,
-                    x="Periodo_prev",
-                    y="Kg",
-                    color="Producto",
-                    markers=True,
-                    title=f"Kg previstos por familia de producto ({granularidad_prev.lower()})",
-                    labels={"Periodo_prev": etiqueta_per, "Kg": "Kg previstos"},
-                ),
-                use_container_width=True,
+        if modo_barras == "Total por producto":
+            df_prev_graf = (
+                df_prod_base.groupby("Producto", as_index=False)["Kg"]
+                .sum()
+                .sort_values("Kg", ascending=False)
             )
+            if HAS_PLOTLY:
+                st.plotly_chart(
+                    px.bar(
+                        df_prev_graf,
+                        x="Producto",
+                        y="Kg",
+                        text_auto=".2s",
+                        title=f"Kg previstos por producto ({granularidad_prev.lower()})",
+                        labels={"Producto": "Producto", "Kg": "Kg previstos"},
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.subheader(f"Kg previstos por producto ({granularidad_prev.lower()})")
+                st.bar_chart(df_prev_graf.set_index("Producto")["Kg"])
         else:
-            st.subheader(f"Kg previstos por familia de producto ({granularidad_prev.lower()})")
-            piv_prev = df_prev_graf.pivot(
-                index="Periodo_prev", columns="Producto", values="Kg"
-            ).fillna(0)
-            st.line_chart(piv_prev)
+            df_prev_graf = (
+                df_prod_base.groupby(["Producto", "Periodo_prev"], as_index=False)["Kg"]
+                .sum()
+                .sort_values(["Kg", "Periodo_prev"], ascending=[False, True])
+            )
+            if HAS_PLOTLY:
+                st.plotly_chart(
+                    px.bar(
+                        df_prev_graf,
+                        x="Producto",
+                        y="Kg",
+                        color="Periodo_prev",
+                        barmode="group",
+                        title=f"Kg previstos por producto y {granularidad_prev.lower()}",
+                        labels={"Producto": "Producto", "Kg": "Kg previstos", "Periodo_prev": etiqueta_per},
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.subheader(f"Kg previstos por producto y {granularidad_prev.lower()}")
+                piv_prev = df_prev_graf.pivot(
+                    index="Producto", columns="Periodo_prev", values="Kg"
+                ).fillna(0)
+                st.bar_chart(piv_prev)
 
     cols_visibles = [
         c for c in [
