@@ -93,9 +93,9 @@ def limpiar_visitas(df_raw: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------
-# 3. BARRA LATERAL Y CARGA
+# 3. BARRA LATERAL (ORIGEN Y ACTUALIZACIÓN)
 # ---------------------------------------------------------
-st.sidebar.title("🌿 Filtros de Visitas")
+st.sidebar.title("⚙️ Configuración")
 
 origen = st.sidebar.radio(
     "Origen de datos",
@@ -126,41 +126,67 @@ if df.empty:
     st.warning("No hay registros válidos tras la limpieza.")
     st.stop()
 
-# Filtros interactivos
-if "Campaña" in df.columns and df["Campaña"].notna().any():
-    campanas = sorted(df["Campaña"].dropna().unique())
-    campanas_sel = st.sidebar.multiselect("Campaña", campanas, default=campanas)
-    if campanas_sel:
-        df = df[df["Campaña"].isin(campanas_sel)]
-
-if "Técnico/a" in df.columns and df["Técnico/a"].notna().any():
-    tecnicos = sorted(df["Técnico/a"].dropna().unique())
-    tecnicos_sel = st.sidebar.multiselect("Técnico/a", tecnicos, default=tecnicos)
-    if tecnicos_sel:
-        df = df[df["Técnico/a"].isin(tecnicos_sel)]
-
-if "Género" in df.columns and df["Género"].notna().any():
-    generos = sorted(df["Género"].dropna().unique())
-    generos_sel = st.sidebar.multiselect("Cultivo / Género", generos, default=[])
-    if generos_sel:
-        df = df[df["Género"].isin(generos_sel)]
-
-if "Tipo de agricultor" in df.columns and df["Tipo de agricultor"].notna().any():
-    tipos = sorted(df["Tipo de agricultor"].dropna().unique())
-    tipos_sel = st.sidebar.multiselect("Tipo de agricultor", tipos, default=[])
-    if tipos_sel:
-        df = df[df["Tipo de agricultor"].isin(tipos_sel)]
-
 
 # ---------------------------------------------------------
-# 4. KPIs Y GRÁFICOS
+# 4. CABECERA Y FILTROS EN LA PARTE SUPERIOR
 # ---------------------------------------------------------
 st.title("📋 Cuadro de Mandos — Registro de Visitas")
+
+with st.container(border=True):
+    st.subheader("🔎 Filtros")
+    f1, f2, f3, f4 = st.columns(4)
+
+    with f1:
+        if "Campaña" in df.columns and df["Campaña"].notna().any():
+            campanas = sorted(df["Campaña"].dropna().unique())
+            campanas_sel = st.multiselect("Campaña", campanas, default=campanas)
+            if campanas_sel:
+                df = df[df["Campaña"].isin(campanas_sel)]
+
+    with f2:
+        if "Técnico/a" in df.columns and df["Técnico/a"].notna().any():
+            tecnicos = sorted(df["Técnico/a"].dropna().unique())
+            tecnicos_sel = st.multiselect("Técnico/a", tecnicos, default=tecnicos)
+            if tecnicos_sel:
+                df = df[df["Técnico/a"].isin(tecnicos_sel)]
+
+    with f3:
+        if "Género" in df.columns and df["Género"].notna().any():
+            generos = sorted(df["Género"].dropna().unique())
+            generos_sel = st.multiselect(
+                "Cultivo / Género",
+                generos,
+                default=[],
+                placeholder="Todos los cultivos",
+            )
+            if generos_sel:
+                df = df[df["Género"].isin(generos_sel)]
+
+    with f4:
+        if "Tipo de agricultor" in df.columns and df["Tipo de agricultor"].notna().any():
+            tipos = sorted(df["Tipo de agricultor"].dropna().unique())
+            tipos_sel = st.multiselect(
+                "Tipo de agricultor",
+                tipos,
+                default=[],
+                placeholder="Todos los tipos",
+            )
+            if tipos_sel:
+                df = df[df["Tipo de agricultor"].isin(tipos_sel)]
+
 st.caption(f"Registros filtrados: **{len(df):,}**")
 
 if not HAS_PLOTLY:
     st.caption("Mostrando gráficos nativos de Streamlit (añade `plotly` a `requirements.txt` y reinicia la app para usar Plotly).")
 
+if df.empty:
+    st.warning("No hay registros que coincidan con los filtros seleccionados.")
+    st.stop()
+
+
+# ---------------------------------------------------------
+# 5. KPIs Y GRÁFICOS
+# ---------------------------------------------------------
 total_visitas = len(df)
 agricultores_unicos = df["Agricultor/a"].nunique() if "Agricultor/a" in df.columns else 0
 tecnicos_activos = df["Técnico/a"].nunique() if "Técnico/a" in df.columns else 0
