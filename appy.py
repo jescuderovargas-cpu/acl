@@ -3,8 +3,10 @@ import os
 import streamlit as st
 import pandas as pd
 import gspread
+from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 
 try:
@@ -27,17 +29,16 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 
-# Rellena los IDs correspondientes (el código entre /d/ y /edit de cada URL)
 FUENTES = {
     "Registro visitas": {
-        "file_id": "ID_REGISTRO_VISITAS",
+        "file_id": "1Sm-0JmTghLfQczZ3k-W57JNZRbH10waNQj6HVOXZdgk",
         "pestana": "Registro visitas",
-        "formato": "gsheet",  # "gsheet" o "xlsx_drive"
+        "formato": "gsheet",  # "gsheet", "xlsx_drive" o "auto"
         "tipo": "visitas",
         "archivo_local": "Tecnicos.xlsx",
     },
     "Producción y Confección (Hoja1)": {
-        "file_id": "ID_PRODUCCION_CONFECCION",
+        "file_id": "11snS_ZAfyZY7ZMnTOe2QwvbXNYGTN8hl",
         "pestana": "Hoja1",
         "formato": "xlsx_drive",
         "tipo": "produccion",
@@ -67,15 +68,7 @@ def conectar_drive():
     return build("drive", "v3", credentials=obtener_credenciales(), cache_discovery=False)
 
 
-@st.cache_data(ttl=600)
-def cargar_datos_gsheet(file_id: str, pestana: str) -> pd.DataFrame:
-    cliente = conectar_gsheets()
-    ws = cliente.open_by_key(file_id).worksheet(pestana)
-    return pd.DataFrame(ws.get_all_records())
-
-
-@st.cache_data(ttl=600)
-def cargar_datos_xlsx_drive(file_id: str, pestana: str) -> pd.DataFrame:
+def descargar_xlsx_bytes(file_id: str) -> io.BytesIO:
     drive_service = conectar_drive()
     request = drive_service.files().get_media(fileId=file_id, supportsAllDrives=True)
     fh = io.BytesIO()
@@ -84,6 +77,29 @@ def cargar_datos_xlsx_drive(file_id: str, pestana: str) -> pd.DataFrame:
     while not done:
         _, done = downloader.next_chunk()
     fh.seek(0)
+    return fh
+
+
+@st.cache_data(ttl=600)
+def cargar_hoja_inteligente(
+    file_id: str,
+    pestana: str,
+    formato_preferido: str = "auto",
+) -> pd.DataFrame:
+    if not file_id or file_id.startswith("ID_"):
+        raise ValueError("Falta configurar el ID real del archivo en FUENTES.")
+
+    if formato_preferido != "xlsx_drive":
+        try:
+            cliente = conectar_gsheets()
+            ws = cliente.open_by_key(file_id).worksheet(pestana)
+            return pd.DataFrame(ws.get_all_records())
+        except APIError as err:
+            msg = str(err)
+            if "not be an Office file" not in msg and "Use the Drive API" not in msg:
+                raise
+
+    fh = descargar_xlsx_bytes(file_id)
     return pd.read_excel(fh, sheet_name=pestana)
 
 
@@ -92,6 +108,9 @@ def cargar_datos_excel_local(ruta_excel: str, pestana: str) -> pd.DataFrame:
     return pd.read_excel(ruta_excel, sheet_name=pestana)
 
 
+# ---------------------------------------------------------
+# 3. LIMPIEZA Y PREPARACIÓN DE DATOS
+# ---------------------------------------------------------
 def limpiar_numero_es(serie: pd.Series) -> pd.Series:
     if pd.api.types.is_numeric_dtype(serie):
         return serie.fillna(0.0)
@@ -175,16 +194,15 @@ def limpiar_produccion(df_raw: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------
-# 3. BARRA LATERAL
+# 4. BARRA LATERAL Y CARGA DE FUENTE
 # ---------------------------------------------------------
 st.sidebar.title("⚙️ Configuración")
 
 fuente_seleccionada = st.sidebar.selectbox(
     "Selecciona hoja",
     options=list(FUENTES.keys()),
-    index=1,
+    index=0,
 )
-
 cfg = FUENTES[fuente_seleccionada]
 
 origen = st.sidebar.radio(
@@ -199,21 +217,30 @@ if st.sidebar.button("🔄 Actualizar datos", use_container_width=True):
 
 try:
     if origen == "Google Drive / Sheets":
-        if cfg["formato"] == "xlsx_drive":
-            df_raw = cargar_datos_xlsx_drive(cfg["file_id"], cfg["pestana"])
-        else:
-            df_raw = cargar_datos_gsheet(cfg["file_id"], cfg["pestana"])
+        df_raw = cargar_hoja_inteligente(
+            cfg["file_id"],
+            cfg["pestana"],
+            formato_preferido=cfg.get("formato", "auto"),
+        )
     else:
         ruta_local = cfg["archivo_local"]
         if not os.path.exists(ruta_local) and os.path.exists("Tecnicos.xlsx"):
             ruta_local = "Tecnicos.xlsx"
         df_raw = cargar_datos_excel_local(ruta_local, cfg["pestana"])
+except HttpError as e:
+    st.error(f"Error de Google Drive ({e.resp.status}) en '{fuente_seleccionada}': {e}")
+    st.info(
+        "Revisa el ID, que el archivo esté compartido con "
+        "`firebase-app-hosting-compute@studio-5810984322-26d93.iam.gserviceaccount.com` "
+        "y que **Google Drive API** esté habilitada."
+    )
+    st.stop()
 except Exception as e:
     st.error(f"No se pudo cargar '{fuente_seleccionada}' ({cfg['pestana']}): {e}")
     st.info(
-        "Revisa el ID, el nombre de la pestaña, que el archivo esté compartido con "
+        "Revisa el ID del archivo, el nombre de la pestaña, que esté compartido con "
         "`firebase-app-hosting-compute@studio-5810984322-26d93.iam.gserviceaccount.com` "
-        "y que **Google Drive API** esté habilitada en Google Cloud."
+        "y que `st.secrets['gcp_service_account']` esté configurado."
     )
     st.stop()
 
@@ -223,7 +250,7 @@ if df_raw.empty:
 
 
 # ---------------------------------------------------------
-# 4. VISTA A: REGISTRO DE VISITAS
+# 5. VISTA A: REGISTRO DE VISITAS
 # ---------------------------------------------------------
 if cfg["tipo"] == "visitas":
     df = limpiar_visitas(df_raw)
@@ -266,6 +293,8 @@ if cfg["tipo"] == "visitas":
                     df = df[df["Tipo de agricultor"].isin(tipos_sel)]
 
     st.caption(f"Registros filtrados: **{len(df):,}**")
+    if not HAS_PLOTLY:
+        st.caption("Mostrando gráficos nativos de Streamlit (añade `plotly` a `requirements.txt` para usar Plotly).")
     if df.empty:
         st.warning("No hay registros que coincidan con los filtros seleccionados.")
         st.stop()
@@ -302,7 +331,13 @@ if cfg["tipo"] == "visitas":
             )
             if HAS_PLOTLY:
                 st.plotly_chart(
-                    px.bar(visitas_tec, x="Técnico/a", y="Visitas", title="Visitas por técnico/a", text_auto=True),
+                    px.bar(
+                        visitas_tec,
+                        x="Técnico/a",
+                        y="Visitas",
+                        title="Visitas por técnico/a",
+                        text_auto=True,
+                    ),
                     use_container_width=True,
                 )
             else:
@@ -312,7 +347,13 @@ if cfg["tipo"] == "visitas":
     with col_der:
         if HAS_PLOTLY:
             st.plotly_chart(
-                px.bar(visitas_mes, x="Mes", y="Visitas", title="Visitas por mes", text_auto=True),
+                px.bar(
+                    visitas_mes,
+                    x="Mes",
+                    y="Visitas",
+                    title="Visitas por mes",
+                    text_auto=True,
+                ),
                 use_container_width=True,
             )
         else:
@@ -345,7 +386,9 @@ if cfg["tipo"] == "visitas":
         )
     else:
         st.subheader("Evolución semanal de visitas por técnico/a")
-        piv_sem = visitas_sem_tec.pivot(index="Semana_inicio", columns="Técnico/a", values="Visitas").fillna(0)
+        piv_sem = visitas_sem_tec.pivot(
+            index="Semana_inicio", columns="Técnico/a", values="Visitas"
+        ).fillna(0)
         st.line_chart(piv_sem)
 
     cols_visibles = [
@@ -361,7 +404,7 @@ if cfg["tipo"] == "visitas":
 
 
 # ---------------------------------------------------------
-# 5. VISTA B: PRODUCCIÓN Y CONFECCIÓN (HOJA1)
+# 6. VISTA B: PRODUCCIÓN Y CONFECCIÓN (HOJA1)
 # ---------------------------------------------------------
 else:
     df = limpiar_produccion(df_raw)
@@ -400,6 +443,8 @@ else:
                     df = df[df["CLIENTE"].isin(clientes_sel)]
 
     st.caption(f"Registros filtrados: **{len(df):,}**")
+    if not HAS_PLOTLY:
+        st.caption("Mostrando gráficos nativos de Streamlit (añade `plotly` a `requirements.txt` para usar Plotly).")
     if df.empty:
         st.warning("No hay registros que coincidan con los filtros seleccionados.")
         st.stop()
@@ -443,17 +488,31 @@ else:
     with col_der:
         if "FECHA" in df.columns and "TOTAL IMPORTES" in df.columns:
             df["Mes"] = df["FECHA"].dt.to_period("M").astype(str)
-            por_mes = df.groupby("Mes", as_index=False)["TOTAL IMPORTES"].sum().sort_values("Mes")
+            por_mes = (
+                df.groupby("Mes", as_index=False)["TOTAL IMPORTES"]
+                .sum()
+                .sort_values("Mes")
+            )
             if HAS_PLOTLY:
                 st.plotly_chart(
-                    px.bar(por_mes, x="Mes", y="TOTAL IMPORTES", title="Importes por mes (€)", text_auto=".2s"),
+                    px.bar(
+                        por_mes,
+                        x="Mes",
+                        y="TOTAL IMPORTES",
+                        title="Importes por mes (€)",
+                        text_auto=".2s",
+                    ),
                     use_container_width=True,
                 )
             else:
                 st.subheader("Importes por mes (€)")
                 st.bar_chart(por_mes.set_index("Mes")["TOTAL IMPORTES"])
 
-    if "FECHA" in df.columns and "LINEA PRODUCCIÓN" in df.columns and "TOTAL KG CONFECCIONADOS" in df.columns:
+    if (
+        "FECHA" in df.columns
+        and "LINEA PRODUCCIÓN" in df.columns
+        and "TOTAL KG CONFECCIONADOS" in df.columns
+    ):
         df["Semana_inicio"] = (
             df["FECHA"].dt.to_period("W").apply(lambda r: r.start_time.strftime("%Y-%m-%d"))
         )
@@ -478,7 +537,9 @@ else:
             )
         else:
             st.subheader("Evolución semanal de kg confeccionados por línea")
-            piv_l = sem_linea.pivot(index="Semana_inicio", columns="LINEA PRODUCCIÓN", values="TOTAL KG CONFECCIONADOS").fillna(0)
+            piv_l = sem_linea.pivot(
+                index="Semana_inicio", columns="LINEA PRODUCCIÓN", values="TOTAL KG CONFECCIONADOS"
+            ).fillna(0)
             st.line_chart(piv_l)
 
     with st.expander("Ver detalle de producción filtrada", expanded=True):
