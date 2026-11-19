@@ -235,7 +235,6 @@ def limpiar_produccion(df_raw: pd.DataFrame) -> pd.DataFrame:
         df = df.sort_values("FECHA", ascending=False)
 
     for col in [
-        "KG MOVIDOS",
         "KG CONFECCIONADOS 1",
         "KG CONFECCIONADOS 2",
         "KG CONFECCIONADOS 3",
@@ -540,10 +539,7 @@ else:
 
     kg_conf = df["TOTAL KG CONFECCIONADOS"].sum() if "TOTAL KG CONFECCIONADOS" in df.columns else 0.0
     imp_tot = df["TOTAL IMPORTES"].sum() if "TOTAL IMPORTES" in df.columns else 0.0
-
-    col_mo = buscar_columna(df, ["COSTE MO", "Coste Mo Estimado", "COSTE MANO DE OBRA"])
-    coste_mo_total = df[col_mo].sum() if col_mo else imp_tot
-    coste_medio_mo_kg = (coste_mo_total / kg_conf) if kg_conf > 0 else 0.0
+    coste_medio_mo_kg = (imp_tot / kg_conf) if kg_conf > 0 else 0.0
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric(etiqueta_personal, f"{personal_val:,.0f}")
@@ -554,129 +550,3 @@ else:
     st.divider()
 
     col_izq, col_der = st.columns(2)
-    with col_izq:
-        if "LINEA PRODUCCIÓN" in df.columns and "TOTAL KG CONFECCIONADOS" in df.columns:
-            por_linea = (
-                df.groupby("LINEA PRODUCCIÓN", as_index=False)["TOTAL KG CONFECCIONADOS"]
-                .sum()
-                .sort_values("TOTAL KG CONFECCIONADOS", ascending=False)
-            )
-            if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.bar(
-                        por_linea,
-                        x="LINEA PRODUCCIÓN",
-                        y="TOTAL KG CONFECCIONADOS",
-                        title="Kg confeccionados por línea de producción",
-                        text_auto=".2s",
-                    ),
-                    use_container_width=True,
-                )
-            else:
-                st.subheader("Kg confeccionados por línea de producción")
-                st.bar_chart(por_linea.set_index("LINEA PRODUCCIÓN")["TOTAL KG CONFECCIONADOS"])
-
-    with col_der:
-        if "FECHA" in df.columns and "TOTAL IMPORTES" in df.columns:
-            df["Mes"] = df["FECHA"].dt.to_period("M").astype(str)
-            por_mes = (
-                df.groupby("Mes", as_index=False)["TOTAL IMPORTES"]
-                .sum()
-                .sort_values("Mes")
-            )
-            if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.bar(
-                        por_mes,
-                        x="Mes",
-                        y="TOTAL IMPORTES",
-                        title="Importes por mes (€)",
-                        text_auto=".2s",
-                    ),
-                    use_container_width=True,
-                )
-            else:
-                st.subheader("Importes por mes (€)")
-                st.bar_chart(por_mes.set_index("Mes")["TOTAL IMPORTES"])
-
-    st.divider()
-
-    c_ctrl1, _ = st.columns([1, 3])
-    with c_ctrl1:
-        granularidad = st.radio(
-            "Agrupación temporal",
-            options=["Semana", "Día"],
-            horizontal=True,
-            index=0,
-        )
-
-    if "FECHA" in df.columns:
-        if granularidad == "Día":
-            df["Periodo"] = df["FECHA"].dt.strftime("%Y-%m-%d")
-            etiqueta_periodo = "Día"
-        else:
-            df["Periodo"] = df["FECHA"].dt.to_period("W").apply(lambda r: r.start_time.strftime("%Y-%m-%d"))
-            etiqueta_periodo = "Semana (inicio)"
-
-        col_prod_graf, col_mo_graf = st.columns(2)
-
-        with col_prod_graf:
-            if col_producto and "TOTAL KG CONFECCIONADOS" in df.columns:
-                df_prod = df.dropna(subset=[col_producto]).copy()
-                prod_periodo = (
-                    df_prod.groupby(["Periodo", col_producto], as_index=False)["TOTAL KG CONFECCIONADOS"]
-                    .sum()
-                    .sort_values("Periodo")
-                )
-                if HAS_PLOTLY:
-                    st.plotly_chart(
-                        px.line(
-                            prod_periodo,
-                            x="Periodo",
-                            y="TOTAL KG CONFECCIONADOS",
-                            color=col_producto,
-                            markers=True,
-                            title=f"Evolución ({granularidad.lower()}) de kg confeccionados por producto",
-                            labels={"Periodo": etiqueta_periodo, "TOTAL KG CONFECCIONADOS": "Kg confeccionados"},
-                        ),
-                        use_container_width=True,
-                    )
-                else:
-                    st.subheader(f"Evolución ({granularidad.lower()}) de kg confeccionados por producto")
-                    piv_p = prod_periodo.pivot(
-                        index="Periodo", columns=col_producto, values="TOTAL KG CONFECCIONADOS"
-                    ).fillna(0)
-                    st.line_chart(piv_p)
-
-        with col_mo_graf:
-            if col_mo and "TOTAL KG CONFECCIONADOS" in df.columns:
-                mo_periodo = (
-                    df.groupby("Periodo", as_index=False)
-                    .agg(
-                        coste_mo=(col_mo, "sum"),
-                        kg_conf=("TOTAL KG CONFECCIONADOS", "sum"),
-                    )
-                    .sort_values("Periodo")
-                )
-                mo_periodo["Coste Medio MO (€/kg)"] = mo_periodo.apply(
-                    lambda r: (r["coste_mo"] / r["kg_conf"]) if r["kg_conf"] > 0 else 0.0,
-                    axis=1,
-                )
-                if HAS_PLOTLY:
-                    st.plotly_chart(
-                        px.line(
-                            mo_periodo,
-                            x="Periodo",
-                            y="Coste Medio MO (€/kg)",
-                            markers=True,
-                            title=f"Coste medio de mano de obra por {granularidad.lower()} (€/kg)",
-                            labels={"Periodo": etiqueta_periodo},
-                        ),
-                        use_container_width=True,
-                    )
-                else:
-                    st.subheader(f"Coste medio de mano de obra por {granularidad.lower()} (€/kg)")
-                    st.line_chart(mo_periodo.set_index("Periodo")["Coste Medio MO (€/kg)"])
-
-    with st.expander("Detalle de producción filtrada", expanded=True):
-        st.dataframe(df, use_container_width=True, hide_index=True)
