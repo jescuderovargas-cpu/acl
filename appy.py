@@ -88,7 +88,7 @@ FUENTES = {
     "Previsiones": {
         "file_id": "1O3cZG22pczeI4OgDHvXe0yF9nwTNc_u4f3L9k6t0Ch8",
         "pestana": "Entregas",
-        "formato": "xlsx_drive",
+        "formato": "gsheet",
         "tipo": "entregas",
         "archivo_local": "DB_CalidadACL.xlsx",
         "secreto": "gcp_service_account",
