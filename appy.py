@@ -1,7 +1,10 @@
+import io
 import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 
 try:
     import plotly.express as px
@@ -18,15 +21,22 @@ st.set_page_config(
     layout="wide",
 )
 
-FUENTES_GSHEETS = {
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/drive.readonly",
+]
+
+FUENTES = {
     "Registro visitas": {
-        "sheet_id": "1Sm-0JmTghLfQczZ3k-W57JNZRbH10waNQj6HVOXZdgk",
+        "file_id": "1Sm-0JmTghLfQczZ3k-W57JNZRbH10waNQj6HVOXZdgk",
         "pestana": "Registro visitas",
+        "formato": "gsheet",  # "gsheet" o "xlsx_drive"
         "tipo": "visitas",
     },
     "Producción y Confección (Hoja1)": {
-        "sheet_id": "11snS_ZAfyZY7ZMnTOe2QwvbXNYGTN8hl",
+        "file_id": "11snS_ZAfyZY7ZMnTOe2QwvbXNYGTN8hl",
         "pestana": "Hoja1",
+        "formato": "xlsx_drive",  # Se descarga como .xlsx desde Drive y se lee con pandas
         "tipo": "produccion",
     },
 }
@@ -35,26 +45,44 @@ ARCHIVO_LOCAL_FALLBACK = "Tecnicos.xlsx"
 
 
 # ---------------------------------------------------------
-# 2. CONEXIÓN GOOGLE SHEETS Y CARGA CON CACHÉ
+# 2. CONEXIÓN Y CARGA CON CACHÉ
 # ---------------------------------------------------------
 @st.cache_resource
-def conectar_gsheets():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets.readonly",
-        "https://www.googleapis.com/auth/drive.readonly",
-    ]
-    creds = Credentials.from_service_account_info(
+def obtener_credenciales():
+    return Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
-        scopes=scopes,
+        scopes=SCOPES,
     )
-    return gspread.authorize(creds)
+
+
+@st.cache_resource
+def conectar_gsheets():
+    return gspread.authorize(obtener_credenciales())
+
+
+@st.cache_resource
+def conectar_drive():
+    return build("drive", "v3", credentials=obtener_credenciales(), cache_discovery=False)
 
 
 @st.cache_data(ttl=600)
-def cargar_datos_gsheet(sheet_id: str, pestana: str) -> pd.DataFrame:
+def cargar_datos_gsheet(file_id: str, pestana: str) -> pd.DataFrame:
     cliente = conectar_gsheets()
-    ws = cliente.open_by_key(sheet_id).worksheet(pestana)
+    ws = cliente.open_by_key(file_id).worksheet(pestana)
     return pd.DataFrame(ws.get_all_records())
+
+
+@st.cache_data(ttl=600)
+def cargar_datos_xlsx_drive(file_id: str, pestana: str) -> pd.DataFrame:
+    drive_service = conectar_drive()
+    request = drive_service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    fh.seek(0)
+    return pd.read_excel(fh, sheet_name=pestana)
 
 
 @st.cache_data(ttl=600)
@@ -151,13 +179,13 @@ st.sidebar.title("⚙️ Configuración")
 
 fuente_seleccionada = st.sidebar.selectbox(
     "Selecciona hoja",
-    options=list(FUENTES_GSHEETS.keys()),
+    options=list(FUENTES.keys()),
     index=0,
 )
 
 origen = st.sidebar.radio(
     "Origen de datos",
-    options=["Google Sheets", "Excel local (Tecnicos.xlsx)"],
+    options=["Google Drive / Sheets", "Excel local (Tecnicos.xlsx)"],
     index=0,
 )
 
@@ -165,18 +193,22 @@ if st.sidebar.button("🔄 Actualizar datos", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
-cfg = FUENTES_GSHEETS[fuente_seleccionada]
+cfg = FUENTES[fuente_seleccionada]
 
 try:
-    if origen == "Google Sheets":
-        df_raw = cargar_datos_gsheet(cfg["sheet_id"], cfg["pestana"])
+    if origen == "Google Drive / Sheets":
+        if cfg["formato"] == "xlsx_drive":
+            df_raw = cargar_datos_xlsx_drive(cfg["file_id"], cfg["pestana"])
+        else:
+            df_raw = cargar_datos_gsheet(cfg["file_id"], cfg["pestana"])
     else:
         df_raw = cargar_datos_excel_local(ARCHIVO_LOCAL_FALLBACK, cfg["pestana"])
 except Exception as e:
     st.error(f"No se pudo cargar '{fuente_seleccionada}' ({cfg['pestana']}): {e}")
     st.info(
-        "Si el archivo en Drive es `.xlsx`, ábrelo y guárdalo como hoja de cálculo de Google, "
-        "y compártelo con `firebase-app-hosting-compute@studio-5810984322-26d93.iam.gserviceaccount.com`."
+        "Revisa el ID, el nombre de la pestaña, que el archivo esté compartido con "
+        "`firebase-app-hosting-compute@studio-5810984322-26d93.iam.gserviceaccount.com` "
+        "y que **Google Drive API** esté activa en Google Cloud."
     )
     st.stop()
 
