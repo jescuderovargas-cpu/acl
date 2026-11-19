@@ -200,6 +200,14 @@ k4.metric("Visitas con Foto", f"{pct_fotos:.1f}%")
 
 st.divider()
 
+df["Mes"] = df["Fecha"].dt.to_period("M").astype(str)
+visitas_mes = (
+    df.groupby("Mes", as_index=False)
+    .size()
+    .rename(columns={"size": "Visitas"})
+    .sort_values("Mes")
+)
+
 col_izq, col_der = st.columns(2)
 
 with col_izq:
@@ -224,25 +232,18 @@ with col_izq:
             st.bar_chart(visitas_tec.set_index("Técnico/a")["Visitas"])
 
 with col_der:
-    if "Género" in df.columns:
-        visitas_gen = (
-            df.groupby("Género", as_index=False)
-            .size()
-            .rename(columns={"size": "Visitas"})
-            .sort_values("Visitas", ascending=False)
+    if HAS_PLOTLY:
+        fig_mes_bar = px.bar(
+            visitas_mes,
+            x="Mes",
+            y="Visitas",
+            title="Visitas por mes",
+            text_auto=True,
         )
-        if HAS_PLOTLY:
-            fig_gen = px.bar(
-                visitas_gen,
-                x="Género",
-                y="Visitas",
-                title="Visitas por cultivo / género",
-                text_auto=True,
-            )
-            st.plotly_chart(fig_gen, use_container_width=True)
-        else:
-            st.subheader("Visitas por cultivo / género")
-            st.bar_chart(visitas_gen.set_index("Género")["Visitas"])
+        st.plotly_chart(fig_mes_bar, use_container_width=True)
+    else:
+        st.subheader("Visitas por mes")
+        st.bar_chart(visitas_mes.set_index("Mes")["Visitas"])
 
 # Evolución semanal por técnico/a (fecha de inicio de semana)
 df["Semana_inicio"] = (
