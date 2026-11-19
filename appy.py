@@ -85,6 +85,14 @@ FUENTES = {
         "archivo_local": "prueba (1).xlsx",
         "secreto": "gcp_service_account_prod",
     },
+    "Previsiones": {
+        "file_id": "1O3cZG22pczeI4OgDHvXe0yF9nwTNc_u4f3L9k6t0Ch8",
+        "pestana": "Entregas",  # Nombre exacto de la pestaña
+        "formato": "xlsx_drive",
+        "tipo": "calidad",  # O el tipo de vista que quieras usar o crear
+        "archivo_local": "DB_CalidadACL.xlsx",
+        "secreto": "gcp_service_account",
+    },
 }
 
 
