@@ -18,7 +18,7 @@ st.set_page_config(
     layout="wide",
 )
 
-SHEET_ID = "https://docs.google.com/spreadsheets/d/1Sm-0JmTghLfQczZ3k-W57JNZRbH10waNQj6HVOXZdgk/edit?gid=0#gid=0"
+SHEET_ID = "1Sm-0JmTghLfQczZ3k-W57JNZRbH10waNQj6HVOXZdgk"
 NOMBRE_PESTANA = "Registro visitas"
 ARCHIVO_LOCAL_FALLBACK = "Tecnicos.xlsx"
 
