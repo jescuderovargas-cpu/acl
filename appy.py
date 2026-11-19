@@ -588,7 +588,7 @@ else:
     k1.metric(etiqueta_personal, f"{personal_val:,.1f}")
     k2.metric("Total Kg Confeccionados", f"{kg_conf:,.0f} kg")
     k3.metric("Total Importes", f"{imp_tot:,.2f} €")
-    k4.metric("Coste Medio MO (€/kg)", f"{coste_medio_mo_kg:,.3f} €/kg"))
+    k4.metric("Coste Medio MO (€/kg)", f"{coste_medio_mo_kg:,.3f} €/kg")
 
     st.divider()
 
