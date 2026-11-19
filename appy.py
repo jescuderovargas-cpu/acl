@@ -1,4 +1,5 @@
 import io
+import os
 import streamlit as st
 import pandas as pd
 import gspread
@@ -26,22 +27,23 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 
+# Rellena los IDs correspondientes (el código entre /d/ y /edit de cada URL)
 FUENTES = {
     "Registro visitas": {
-        "file_id": "1Sm-0JmTghLfQczZ3k-W57JNZRbH10waNQj6HVOXZdgk",
+        "file_id": "ID_REGISTRO_VISITAS",
         "pestana": "Registro visitas",
         "formato": "gsheet",  # "gsheet" o "xlsx_drive"
         "tipo": "visitas",
+        "archivo_local": "Tecnicos.xlsx",
     },
     "Producción y Confección (Hoja1)": {
-        "file_id": "11snS_ZAfyZY7ZMnTOe2QwvbXNYGTN8hl",
+        "file_id": "ID_PRODUCCION_CONFECCION",
         "pestana": "Hoja1",
-        "formato": "xlsx_drive",  # Se descarga como .xlsx desde Drive y se lee con pandas
+        "formato": "xlsx_drive",
         "tipo": "produccion",
+        "archivo_local": "prueba (1).xlsx",
     },
 }
-
-ARCHIVO_LOCAL_FALLBACK = "Tecnicos.xlsx"
 
 
 # ---------------------------------------------------------
@@ -75,7 +77,7 @@ def cargar_datos_gsheet(file_id: str, pestana: str) -> pd.DataFrame:
 @st.cache_data(ttl=600)
 def cargar_datos_xlsx_drive(file_id: str, pestana: str) -> pd.DataFrame:
     drive_service = conectar_drive()
-    request = drive_service.files().get_media(fileId=file_id)
+    request = drive_service.files().get_media(fileId=file_id, supportsAllDrives=True)
     fh = io.BytesIO()
     downloader = MediaIoBaseDownload(fh, request)
     done = False
@@ -180,20 +182,20 @@ st.sidebar.title("⚙️ Configuración")
 fuente_seleccionada = st.sidebar.selectbox(
     "Selecciona hoja",
     options=list(FUENTES.keys()),
-    index=0,
+    index=1,
 )
+
+cfg = FUENTES[fuente_seleccionada]
 
 origen = st.sidebar.radio(
     "Origen de datos",
-    options=["Google Drive / Sheets", "Excel local (Tecnicos.xlsx)"],
+    options=["Google Drive / Sheets", "Excel local"],
     index=0,
 )
 
 if st.sidebar.button("🔄 Actualizar datos", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
-
-cfg = FUENTES[fuente_seleccionada]
 
 try:
     if origen == "Google Drive / Sheets":
@@ -202,13 +204,16 @@ try:
         else:
             df_raw = cargar_datos_gsheet(cfg["file_id"], cfg["pestana"])
     else:
-        df_raw = cargar_datos_excel_local(ARCHIVO_LOCAL_FALLBACK, cfg["pestana"])
+        ruta_local = cfg["archivo_local"]
+        if not os.path.exists(ruta_local) and os.path.exists("Tecnicos.xlsx"):
+            ruta_local = "Tecnicos.xlsx"
+        df_raw = cargar_datos_excel_local(ruta_local, cfg["pestana"])
 except Exception as e:
     st.error(f"No se pudo cargar '{fuente_seleccionada}' ({cfg['pestana']}): {e}")
     st.info(
         "Revisa el ID, el nombre de la pestaña, que el archivo esté compartido con "
         "`firebase-app-hosting-compute@studio-5810984322-26d93.iam.gserviceaccount.com` "
-        "y que **Google Drive API** esté activa en Google Cloud."
+        "y que **Google Drive API** esté habilitada en Google Cloud."
     )
     st.stop()
 
