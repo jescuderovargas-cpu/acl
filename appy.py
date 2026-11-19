@@ -33,7 +33,7 @@ FUENTES = {
     "Registro visitas": {
         "file_id": "1Sm-0JmTghLfQczZ3k-W57JNZRbH10waNQj6HVOXZdgk",
         "pestana": "Registro visitas",
-        "formato": "gsheet",  # "gsheet", "xlsx_drive" o "auto"
+        "formato": "gsheet",
         "tipo": "visitas",
         "archivo_local": "Tecnicos.xlsx",
         "secreto": "gcp_service_account",
@@ -41,10 +41,10 @@ FUENTES = {
     "Producción y Confección (Hoja1)": {
         "file_id": "11snS_ZAfyZY7ZMnTOe2QwvbXNYGTN8hl",
         "pestana": "Hoja1",
-        "formato": "gsheet",  # "gsheet", "xlsx_drive" o "auto"
+        "formato": "xlsx_drive",
         "tipo": "produccion",
         "archivo_local": "prueba (1).xlsx",
-        "secreto": "gcp_service_account",
+        "secreto": "gcp_service_account_prod",  # cambia a "gcp_service_account" si usas la misma
     },
 }
 
