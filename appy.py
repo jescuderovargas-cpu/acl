@@ -326,7 +326,10 @@ def limpiar_entregas(df_raw: pd.DataFrame) -> pd.DataFrame:
         df = df.dropna(subset=["Fecha_"])
         df = df.sort_values("Fecha_", ascending=False)
 
-    for col in ["Kg", "Kg_Entregados", "Dif_Kg", "Semana"]:
+    if "Semana" in df.columns:
+        df["Semana"] = pd.to_numeric(df["Semana"], errors="coerce")
+
+    for col in ["Kg", "Kg_Entregados", "Dif_Kg"]:
         if col in df.columns:
             df[col] = limpiar_numero_es(df[col])
 
@@ -755,7 +758,7 @@ elif cfg["tipo"] == "produccion":
 else:
     df = limpiar_entregas(df_raw)
     st.title("Cuadro de Mandos — Previsiones y Entregas")
-    st.caption("Seguimiento de kilos previstos, kilos entregados y desviaciones")
+    st.caption("Seguimiento de kilos previstos por familia de producto, semana y fecha")
 
     with st.container(border=True):
         st.subheader("Filtros")
@@ -778,11 +781,35 @@ else:
         with f3:
             if "Producto" in df.columns and df["Producto"].notna().any():
                 productos = sorted(df["Producto"].dropna().unique())
-                productos_sel = st.multiselect("Producto", productos, default=[])
+                productos_sel = st.multiselect("Familia de producto", productos, default=[])
                 if productos_sel:
                     df = df[df["Producto"].isin(productos_sel)]
 
         with f4:
+            if "Semana" in df.columns and df["Semana"].notna().any():
+                semanas = sorted(df["Semana"].dropna().astype(int).unique())
+                semanas_sel = st.multiselect("Semana", semanas, default=[])
+                if semanas_sel:
+                    df = df[df["Semana"].isin(semanas_sel)]
+
+        f5, f6 = st.columns([2, 2])
+        with f5:
+            if "Fecha_" in df.columns and df["Fecha_"].notna().any():
+                min_fecha = df["Fecha_"].min().date()
+                max_fecha = df["Fecha_"].max().date()
+                rango_fecha = st.date_input(
+                    "Fecha",
+                    value=(min_fecha, max_fecha),
+                    min_value=min_fecha,
+                    max_value=max_fecha,
+                )
+                if isinstance(rango_fecha, tuple) and len(rango_fecha) == 2:
+                    f_ini, f_fin = rango_fecha
+                    df = df[(df["Fecha_"].dt.date >= f_ini) & (df["Fecha_"].dt.date <= f_fin)]
+                elif isinstance(rango_fecha, tuple) and len(rango_fecha) == 1:
+                    df = df[df["Fecha_"].dt.date >= rango_fecha[0]]
+
+        with f6:
             if "Responsable" in df.columns and df["Responsable"].notna().any():
                 responsables = sorted(df["Responsable"].dropna().unique())
                 responsables_sel = st.multiselect("Responsable", responsables, default=[])
@@ -795,79 +822,63 @@ else:
         st.stop()
 
     kg_prev = df["Kg"].sum() if "Kg" in df.columns else 0.0
-    kg_ent = df["Kg_Entregados"].sum() if "Kg_Entregados" in df.columns else 0.0
-    dif_kg = df["Dif_Kg"].sum() if "Dif_Kg" in df.columns else (kg_ent - kg_prev)
-    pct_cumpl = (kg_ent / kg_prev * 100) if kg_prev > 0 else 0.0
 
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2 = st.columns(2)
     k1.metric("Total Kg Previstos", f"{kg_prev:,.0f} kg")
-    k2.metric("Total Kg Entregados", f"{kg_ent:,.0f} kg")
-    k3.metric("Diferencia Kg", f"{dif_kg:,.0f} kg")
-    k4.metric("Cumplimiento", f"{pct_cumpl:.1f}%")
+    k2.metric("Registros", f"{len(df):,}")
 
     st.divider()
 
-    g1, g2 = st.columns(2)
-    with g1:
-        if "Producto" in df.columns and "Kg" in df.columns and "Kg_Entregados" in df.columns:
-            df_prod = (
-                df.dropna(subset=["Producto"])
-                .groupby("Producto", as_index=False)[["Kg", "Kg_Entregados"]]
-                .sum()
-                .sort_values("Kg", ascending=False)
-            )
-            df_melt = df_prod.melt(
-                id_vars="Producto",
-                value_vars=["Kg", "Kg_Entregados"],
-                var_name="Concepto",
-                value_name="Kilos",
-            )
-            if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.bar(
-                        df_melt,
-                        x="Producto",
-                        y="Kilos",
-                        color="Concepto",
-                        barmode="group",
-                        title="Kg previstos vs. entregados por producto",
-                    ),
-                    use_container_width=True,
-                )
-            else:
-                st.subheader("Kg previstos vs. entregados por producto")
-                st.bar_chart(df_prod.set_index("Producto")[["Kg", "Kg_Entregados"]])
+    if "Fecha_" in df.columns and "Kg" in df.columns and "Producto" in df.columns:
+        granularidad_prev = st.radio(
+            "Agrupación temporal",
+            options=["Semana", "Día"],
+            horizontal=True,
+            index=0,
+        )
 
-    with g2:
-        if "Fecha_" in df.columns and "Kg" in df.columns:
-            df["Semana_inicio"] = (
-                df["Fecha_"].dt.to_period("W").apply(lambda r: r.start_time.strftime("%Y-%m-%d"))
+        if granularidad_prev == "Día":
+            df["Periodo_prev"] = df["Fecha_"].dt.strftime("%Y-%m-%d")
+            etiqueta_per = "Día"
+        else:
+            df["Periodo_prev"] = df["Fecha_"].dt.to_period("W").apply(
+                lambda r: r.start_time.strftime("%Y-%m-%d")
             )
-            cols_sem = ["Kg"] + (["Kg_Entregados"] if "Kg_Entregados" in df.columns else [])
-            df_sem = df.groupby("Semana_inicio", as_index=False)[cols_sem].sum().sort_values("Semana_inicio")
-            if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.line(
-                        df_sem,
-                        x="Semana_inicio",
-                        y=cols_sem,
-                        markers=True,
-                        title="Evolución semanal de kilos",
-                        labels={"Semana_inicio": "Semana (inicio)", "value": "Kilos"},
-                    ),
-                    use_container_width=True,
-                )
-            else:
-                st.subheader("Evolución semanal de kilos")
-                st.line_chart(df_sem.set_index("Semana_inicio")[cols_sem])
+            etiqueta_per = "Semana (inicio)"
+
+        df_prev_graf = (
+            df.dropna(subset=["Producto"])
+            .groupby(["Periodo_prev", "Producto"], as_index=False)["Kg"]
+            .sum()
+            .sort_values("Periodo_prev")
+        )
+
+        if HAS_PLOTLY:
+            st.plotly_chart(
+                px.line(
+                    df_prev_graf,
+                    x="Periodo_prev",
+                    y="Kg",
+                    color="Producto",
+                    markers=True,
+                    title=f"Kg previstos por familia de producto ({granularidad_prev.lower()})",
+                    labels={"Periodo_prev": etiqueta_per, "Kg": "Kg previstos"},
+                ),
+                use_container_width=True,
+            )
+        else:
+            st.subheader(f"Kg previstos por familia de producto ({granularidad_prev.lower()})")
+            piv_prev = df_prev_graf.pivot(
+                index="Periodo_prev", columns="Producto", values="Kg"
+            ).fillna(0)
+            st.line_chart(piv_prev)
 
     cols_visibles = [
         c for c in [
-            "Fecha_", "Campaña", "Gestion", "Responsable", "Semana",
-            "Nombre", "Producto", "Kg", "Kg_Entregados", "Dif_Kg",
-            "Calibre", "Ubicacion", "Observaciones"
+            "Fecha_", "Semana", "Campaña", "Gestion", "Responsable",
+            "Nombre", "Producto", "Kg", "Calibre", "Ubicacion", "Observaciones"
         ]
         if c in df.columns
     ]
-    with st.expander("Detalle de previsiones y entregas", expanded=True):
+    with st.expander("Detalle de previsiones", expanded=True):
         st.dataframe(df[cols_visibles], use_container_width=True, hide_index=True)
