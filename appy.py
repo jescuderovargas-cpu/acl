@@ -44,7 +44,7 @@ FUENTES = {
         "formato": "xlsx_drive",
         "tipo": "produccion",
         "archivo_local": "prueba (1).xlsx",
-        "secreto": "gcp_service_account_prod",  # cambia a "gcp_service_account" si usas la misma
+        "secreto": "gcp_service_account",  # cambia a "gcp_service_account" si usas la misma
     },
 }
 
