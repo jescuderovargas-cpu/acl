@@ -41,7 +41,7 @@ FUENTES = {
     "Producción y Confección (Hoja1)": {
         "file_id": "11snS_ZAfyZY7ZMnTOe2QwvbXNYGTN8hl",
         "pestana": "Hoja1",
-        "formato": "xlsx_drive",
+        "formato": "gsheet",  # "gsheet", "xlsx_drive" o "auto"
         "tipo": "produccion",
         "archivo_local": "prueba (1).xlsx",
         "secreto": "gcp_service_account",
