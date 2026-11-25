@@ -962,8 +962,18 @@ else:
 
         with f1:
             if "Campaña" in df.columns and df["Campaña"].notna().any():
-                campanas = sorted(df["Campaña"].dropna().unique())
-                campanas_sel = st.multiselect("Campaña", campanas, default=campanas)
+                if "Fecha_" in df.columns:
+                    campanas = (
+                        df.dropna(subset=["Campaña"])
+                        .groupby("Campaña")["Fecha_"]
+                        .max()
+                        .sort_values(ascending=True)
+                        .index.tolist()
+                    )
+                else:
+                    campanas = sorted(df["Campaña"].dropna().unique())
+                ultima_campana = [campanas[-1]] if campanas else []
+                campanas_sel = st.multiselect("Campaña", campanas, default=ultima_campana)
                 if campanas_sel:
                     df = df[df["Campaña"].isin(campanas_sel)]
 
@@ -1019,9 +1029,8 @@ else:
 
     kg_prev = df["Kg"].sum() if "Kg" in df.columns else 0.0
 
-    k1, k2 = st.columns(2)
+    k1, _ = st.columns([1, 3])
     k1.metric("Total Kg Previstos", f"{kg_prev:,.0f} kg")
-    k2.metric("Registros", f"{len(df):,}")
 
     st.divider()
 
