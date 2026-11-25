@@ -263,6 +263,10 @@ def limpiar_produccion(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.copy()
     df.columns = [str(c).strip() for c in df.columns]
 
+    col_semana = buscar_columna(df, ["SEMANA", "Semana", "SEM"])
+    if col_semana:
+        df["Semana"] = pd.to_numeric(df[col_semana], errors="coerce")
+
     col_fecha = buscar_columna(df, ["FECHA", "Fecha"])
     if col_fecha:
         df["FECHA"] = pd.to_datetime(df[col_fecha], errors="coerce", dayfirst=True)
@@ -634,7 +638,7 @@ elif cfg["tipo"] == "produccion":
 
     with st.container(border=True):
         st.subheader("Filtros")
-        f1, f2, f3, f4, f5 = st.columns(5)
+        f1, f2, f3, f4, f5, f6 = st.columns(6)
 
         with f1:
             if "Campaña" in df.columns and df["Campaña"].notna().any():
@@ -654,27 +658,44 @@ elif cfg["tipo"] == "produccion":
                     df = df[df["Campaña"].isin(campanas_sel)]
 
         with f2:
+            if "Semana" in df.columns and df["Semana"].notna().any():
+                if "FECHA" in df.columns:
+                    semanas = (
+                        df.dropna(subset=["Semana"])
+                        .assign(Semana_int=lambda d: d["Semana"].astype(int))
+                        .groupby("Semana_int")["FECHA"]
+                        .max()
+                        .sort_values(ascending=True)
+                        .index.tolist()
+                    )
+                else:
+                    semanas = sorted(df["Semana"].dropna().astype(int).unique())
+                semanas_sel = st.multiselect("Semana", semanas, default=[])
+                if semanas_sel:
+                    df = df[df["Semana"].isin(semanas_sel)]
+
+        with f3:
             if "LINEA PRODUCCIÓN" in df.columns and df["LINEA PRODUCCIÓN"].notna().any():
                 lineas = sorted(df["LINEA PRODUCCIÓN"].dropna().unique())
                 lineas_sel = st.multiselect("Línea de producción", lineas, default=[])
                 if lineas_sel:
                     df = df[df["LINEA PRODUCCIÓN"].isin(lineas_sel)]
 
-        with f3:
+        with f4:
             if col_familia and df[col_familia].notna().any():
                 familias = sorted(df[col_familia].dropna().unique())
                 familias_sel = st.multiselect("Familia de producto", familias, default=[])
                 if familias_sel:
                     df = df[df[col_familia].isin(familias_sel)]
 
-        with f4:
+        with f5:
             if col_confeccion and df[col_confeccion].notna().any():
                 confecciones = sorted(df[col_confeccion].dropna().unique())
                 confecciones_sel = st.multiselect("Confección", confecciones, default=[])
                 if confecciones_sel:
                     df = df[df[col_confeccion].isin(confecciones_sel)]
 
-        with f5:
+        with f6:
             if col_jefa and df[col_jefa].notna().any():
                 jefas = sorted(df[col_jefa].dropna().unique())
                 jefas_sel = st.multiselect("Jefa de línea", jefas, default=[])
