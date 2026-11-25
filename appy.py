@@ -569,9 +569,9 @@ if cfg["tipo"] == "visitas":
     k3.metric("Técnicos Activos", f"{tecnicos_activos:,}")
 
     # -----------------------------------------------------
-            # ALERTAS: AGRICULTORES SIN VISITA Y > 30 DÍAS (1 MES)
-            # -----------------------------------------------------
-            if {"Agricultor/a", "Fecha"}.issubset(df.columns):
+    # ALERTAS: AGRICULTORES SIN VISITA Y > 30 DÍAS (1 MES)
+    # -----------------------------------------------------
+    if {"Agricultor/a", "Fecha"}.issubset(df.columns):
                 df_valid_vis = df.dropna(subset=["Agricultor/a", "Fecha"]).copy()
                 if not df_valid_vis.empty:
                     fecha_ref = df_valid_vis["Fecha"].max()
@@ -856,6 +856,8 @@ if cfg["tipo"] == "visitas":
         ]
         if c in df.columns
     ]
+
+
 
     # -----------------------------------------------------
     # RANKING DE AGRICULTORES MÁS VISITADOS
