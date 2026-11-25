@@ -95,6 +95,34 @@ FUENTES = {
     },
 }
 
+def exigir_contrasena() -> None:
+    if st.session_state.get("autenticado", False):
+        return
+
+    clave_esperada = st.secrets.get("app_auth", {}).get("password")
+    if not clave_esperada:
+        st.error("No está configurada `st.secrets['app_auth']['password']`.")
+        st.stop()
+
+    st.title("Acceso al Cuadro de Mandos")
+    st.caption("Introduce la contraseña para continuar")
+
+    with st.form("login_form", clear_on_submit=False):
+        clave_introducida = st.text_input("Contraseña", type="password")
+        enviado = st.form_submit_button("Entrar", use_container_width=True)
+
+    if enviado:
+        if clave_introducida == clave_esperada:
+            st.session_state["autenticado"] = True
+            st.rerun()
+        else:
+            st.error("Contraseña incorrecta.")
+
+    st.stop()
+
+
+exigir_contrasena()
+
 
 # ---------------------------------------------------------
 # 2. CONEXIÓN Y CARGA CON CACHÉ
