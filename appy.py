@@ -631,6 +631,78 @@ if cfg["tipo"] == "visitas":
                 st.warning(
                     f"Alerta: {len(df_mas_de_un_mes)} agricultor(es) llevan más de 30 días (1 mes) sin visita."
                 )
+                import matplotlib.pyplot as plt
+
+            df_tabla_mes = df_mas_de_un_mes[
+                ["Agricultor/a", "Tecnico", "Genero", "Ultima_Visita_str", "Dias_sin_visita", "Visitas"]
+            ].rename(columns={
+                "Ultima_Visita_str": "Última visita",
+                "Dias_sin_visita": "Días sin visita",
+                "Tecnico": "Técnico/a",
+                "Genero": "Género",
+            })
+
+            with st.expander("Ver agricultores con más de 1 mes sin visita", expanded=False):
+                st.dataframe(df_tabla_mes, use_container_width=True, hide_index=True)
+
+                c_dl1, c_dl2 = st.columns(2)
+
+                # 1. Descarga CSV (compatible con Excel en español usando punto y coma y UTF-8 BOM)
+                csv_bytes = df_tabla_mes.to_csv(index=False, sep=";").encode("utf-8-sig")
+                with c_dl1:
+                    st.download_button(
+                        label="Descargar CSV",
+                        data=csv_bytes,
+                        file_name="agricultores_mas_1_mes_sin_visita.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key="dl_csv_sin_visita",
+                    )
+
+                # 2. Imagen PNG de la tabla para descargar o copiar
+                n_filas = len(df_tabla_mes)
+                fig_h = max(1.8, 0.55 + n_filas * 0.36)
+                fig, ax = plt.subplots(figsize=(9.5, fig_h), dpi=200)
+                ax.axis("off")
+
+                tabla_mpl = ax.table(
+                    cellText=df_tabla_mes.astype(str).values,
+                    colLabels=df_tabla_mes.columns,
+                    loc="center",
+                    cellLoc="left",
+                )
+                tabla_mpl.auto_set_font_size(False)
+                tabla_mpl.set_fontsize(9)
+                tabla_mpl.scale(1, 1.35)
+
+                for (row, col), cell in tabla_mpl.get_celld().items():
+                    cell.set_edgecolor("#e2e8f0")
+                    if row == 0:
+                        cell.set_facecolor("#1f2937")
+                        cell.set_text_props(color="white", weight="bold")
+                    elif row % 2 == 0:
+                        cell.set_facecolor("#f8f9fb")
+                    else:
+                        cell.set_facecolor("#ffffff")
+
+                buf_img = io.BytesIO()
+                plt.savefig(buf_img, format="png", bbox_inches="tight", dpi=200)
+                plt.close(fig)
+                buf_img.seek(0)
+                img_bytes = buf_img.getvalue()
+
+                with c_dl2:
+                    st.download_button(
+                        label="Descargar imagen (PNG)",
+                        data=img_bytes,
+                        file_name="agricultores_mas_1_mes_sin_visita.png",
+                        mime="image/png",
+                        use_container_width=True,
+                        key="dl_png_sin_visita",
+                    )
+
+                with st.expander("Vista previa de imagen para copiar", expanded=False):
+                    st.image(img_bytes, use_container_width=True)
                 with st.expander("Ver agricultores con más de 1 mes sin visita", expanded=False):
                     st.dataframe(
                         df_mas_de_un_mes[
