@@ -755,6 +755,65 @@ if cfg["tipo"] == "visitas":
         ]
         if c in df.columns
     ]
+
+    # -----------------------------------------------------
+    # RANKING DE AGRICULTORES MÁS VISITADOS
+    # -----------------------------------------------------
+    if "Agricultor/a" in df.columns and df["Agricultor/a"].notna().any():
+        st.divider()
+        st.subheader("Ranking de agricultores más visitados")
+
+        conteo_col_agr = "Id" if "Id" in df.columns else df.columns[0]
+        ranking_agr = (
+            df.dropna(subset=["Agricultor/a"])
+            .groupby("Agricultor/a", as_index=False)
+            .agg(
+                Visitas=(conteo_col_agr, "count"),
+                Ultima_Visita=("Fecha", "max") if "Fecha" in df.columns else (conteo_col_agr, "count"),
+                Tecnico=("Técnico/a", lambda s: s.dropna().iloc[-1] if "Técnico/a" in df.columns and s.notna().any() else "-"),
+                Genero=("Género", lambda s: s.dropna().iloc[-1] if "Género" in df.columns and s.notna().any() else "-"),
+            )
+            .sort_values("Visitas", ascending=False)
+            .reset_index(drop=True)
+        )
+        ranking_agr.insert(0, "Puesto", ranking_agr.index + 1)
+
+        if "Fecha" in df.columns:
+            ranking_agr["Última visita"] = pd.to_datetime(ranking_agr["Ultima_Visita"]).dt.strftime("%Y-%m-%d")
+        else:
+            ranking_agr["Última visita"] = "-"
+
+        top_n = st.slider(
+            "Mostrar en gráfico (Top N)",
+            min_value=5,
+            max_value=min(30, max(5, len(ranking_agr))),
+            value=min(10, len(ranking_agr)),
+            step=5,
+            key="top_n_agricultores",
+        )
+        top_agr_graf = ranking_agr.head(top_n).sort_values("Visitas", ascending=True)
+
+        if HAS_PLOTLY:
+            fig_rank = px.bar(
+                top_agr_graf,
+                x="Visitas",
+                y="Agricultor/a",
+                orientation="h",
+                text_auto=True,
+                title=f"Top {top_n} agricultores más visitados",
+                labels={"Agricultor/a": "", "Visitas": "Número de visitas"},
+            )
+            render_plotly_responsive(fig_rank, height=max(280, len(top_agr_graf) * 32), rotar_x=False)
+        else:
+            st.bar_chart(top_agr_graf.set_index("Agricultor/a")["Visitas"])
+
+        st.dataframe(
+            ranking_agr[["Puesto", "Agricultor/a", "Visitas", "Última visita", "Tecnico", "Genero"]].rename(
+                columns={"Tecnico": "Técnico/a", "Genero": "Género"}
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
     with st.expander("Detalle de visitas filtradas", expanded=False):
         busqueda_visitas = st.text_input(
             "Buscar en el detalle",
