@@ -679,7 +679,27 @@ if cfg["tipo"] == "visitas":
         if c in df.columns
     ]
     with st.expander("Detalle de visitas filtradas", expanded=False):
-        st.dataframe(df[cols_visibles], use_container_width=True, hide_index=True)
+        busqueda_visitas = st.text_input(
+            "Buscar en el detalle",
+            placeholder="Escribe agricultor, técnico, cultivo, anotación...",
+            key="buscador_detalle_visitas",
+        ).strip()
+
+        df_detalle_visitas = df[cols_visibles]
+        if busqueda_visitas:
+            mask_busqueda_visitas = (
+                df_detalle_visitas.astype(str)
+                .apply(
+                    lambda col: col.str.contains(
+                        busqueda_visitas, case=False, na=False, regex=False
+                    )
+                )
+                .any(axis=1)
+            )
+            df_detalle_visitas = df_detalle_visitas[mask_busqueda_visitas]
+
+        st.caption(f"Mostrando {len(df_detalle_visitas):,} de {len(df):,} registros")
+        st.dataframe(df_detalle_visitas, use_container_width=True, hide_index=True)
 
 
 # ---------------------------------------------------------
