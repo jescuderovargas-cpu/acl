@@ -569,156 +569,182 @@ if cfg["tipo"] == "visitas":
     k3.metric("Técnicos Activos", f"{tecnicos_activos:,}")
 
     # -----------------------------------------------------
-    # ALERTAS: AGRICULTORES SIN VISITA Y > 30 DÍAS (1 MES)
-    # -----------------------------------------------------
-    if {"Agricultor/a", "Fecha"}.issubset(df.columns):
-        df_valid_vis = df.dropna(subset=["Agricultor/a", "Fecha"]).copy()
-        if not df_valid_vis.empty:
-            fecha_ref = df_valid_vis["Fecha"].max()
+            # ALERTAS: AGRICULTORES SIN VISITA Y > 30 DÍAS (1 MES)
+            # -----------------------------------------------------
+            if {"Agricultor/a", "Fecha"}.issubset(df.columns):
+                df_valid_vis = df.dropna(subset=["Agricultor/a", "Fecha"]).copy()
+                if not df_valid_vis.empty:
+                    fecha_ref = df_valid_vis["Fecha"].max()
 
-            resumen_agr = (
-                df_valid_vis.groupby("Agricultor/a", as_index=False)
-                .agg(
-                    Visitas=("Fecha", "count"),
-                    Ultima_Visita=("Fecha", "max"),
-                    Tecnico=("Técnico/a", lambda s: s.dropna().iloc[-1] if s.notna().any() else "-"),
-                    Genero=("Género", lambda s: s.dropna().iloc[-1] if s.notna().any() else "-"),
-                )
-            )
-            resumen_agr["Dias_sin_visita"] = (fecha_ref - resumen_agr["Ultima_Visita"]).dt.days
-            resumen_agr["Ultima_Visita_str"] = resumen_agr["Ultima_Visita"].dt.strftime("%Y-%m-%d")
-
-            # Si en la hoja existe una columna con todos los agricultores asignados (p. ej. "Agricultores"),
-            # detectamos también quienes tienen 0 visitas en el filtro actual.
-            col_catalogo_agr = buscar_columna(df_raw, ["AGRICULTORES", "LISTA AGRICULTORES"])
-            sin_visita_df = pd.DataFrame()
-            if col_catalogo_agr and col_catalogo_agr in df_raw.columns:
-                todos_agr = sorted(
-                    {
-                        str(x).strip()
-                        for x in df_raw[col_catalogo_agr].dropna()
-                        if str(x).strip() not in ("", "nan", "None")
-                    }
-                )
-                visitados_set = set(resumen_agr["Agricultor/a"].dropna())
-                nunca_visitados = sorted(set(todos_agr) - visitados_set)
-                if nunca_visitados:
-                    sin_visita_df = pd.DataFrame({
-                        "Agricultor/a": nunca_visitados,
-                        "Visitas": 0,
-                        "Ultima_Visita_str": "Sin visitas",
-                        "Dias_sin_visita": None,
-                        "Tecnico": "-",
-                        "Genero": "-",
-                    })
-
-            if not sin_visita_df.empty:
-                st.error(
-                    f"Alerta: {len(sin_visita_df)} agricultor(es) no tienen ninguna visita registrada."
-                )
-                with st.expander("Ver agricultores sin ninguna visita", expanded=False):
-                    st.dataframe(
-                        sin_visita_df[["Agricultor/a", "Visitas", "Ultima_Visita_str"]],
-                        use_container_width=True,
-                        hide_index=True,
+                    resumen_agr = (
+                        df_valid_vis.groupby("Agricultor/a", as_index=False)
+                        .agg(
+                            Visitas=("Fecha", "count"),
+                            Ultima_Visita=("Fecha", "max"),
+                            Tecnico=(
+                                "Técnico/a",
+                                lambda s: s.dropna().iloc[-1] if s.notna().any() else "-",
+                            ),
+                            Genero=(
+                                "Género",
+                                lambda s: s.dropna().iloc[-1] if s.notna().any() else "-",
+                            ),
+                        )
+                    )
+                    resumen_agr["Dias_sin_visita"] = (
+                        fecha_ref - resumen_agr["Ultima_Visita"]
+                    ).dt.days
+                    resumen_agr["Ultima_Visita_str"] = resumen_agr["Ultima_Visita"].dt.strftime(
+                        "%Y-%m-%d"
                     )
 
-            # Agricultores con más de 30 días (1 mes) sin visita
-            df_mas_de_un_mes = resumen_agr[resumen_agr["Dias_sin_visita"] > 30].sort_values(
-                "Dias_sin_visita", ascending=False
-            )
-            if not df_mas_de_un_mes.empty:
-                st.warning(
-                    f"Alerta: {len(df_mas_de_un_mes)} agricultor(es) llevan más de 30 días (1 mes) sin visita."
-                )
+                    # Agricultores sin ninguna visita registrada (si existe columna catálogo)
+                    col_catalogo_agr = buscar_columna(
+                        df_raw, ["AGRICULTORES", "LISTA AGRICULTORES"]
+                    )
+                    sin_visita_df = pd.DataFrame()
+                    if col_catalogo_agr and col_catalogo_agr in df_raw.columns:
+                        todos_agr = sorted(
+                            {
+                                str(x).strip()
+                                for x in df_raw[col_catalogo_agr].dropna()
+                                if str(x).strip() not in ("", "nan", "None")
+                            }
+                        )
+                        visitados_set = set(resumen_agr["Agricultor/a"].dropna())
+                        nunca_visitados = sorted(set(todos_agr) - visitados_set)
+                        if nunca_visitados:
+                            sin_visita_df = pd.DataFrame(
+                                {
+                                    "Agricultor/a": nunca_visitados,
+                                    "Visitas": 0,
+                                    "Ultima_Visita_str": "Sin visitas",
+                                    "Dias_sin_visita": None,
+                                    "Tecnico": "-",
+                                    "Genero": "-",
+                                }
+                            )
 
-                import matplotlib
-                matplotlib.use("Agg")
-                import matplotlib.pyplot as plt
+                    if not sin_visita_df.empty:
+                        st.error(
+                            f"Alerta: {len(sin_visita_df)} agricultor(es) no tienen ninguna visita registrada."
+                        )
+                        with st.expander(
+                            "Ver agricultores sin ninguna visita", expanded=False
+                        ):
+                            st.dataframe(
+                                sin_visita_df[
+                                    ["Agricultor/a", "Visitas", "Ultima_Visita_str"]
+                                ],
+                                use_container_width=True,
+                                hide_index=True,
+                            )
 
-                df_tabla_mes = df_mas_de_un_mes[
-                    ["Agricultor/a", "Tecnico", "Genero", "Ultima_Visita_str", "Dias_sin_visita", "Visitas"]
-                ].rename(columns={
-                    "Ultima_Visita_str": "Última visita",
-                    "Dias_sin_visita": "Días sin visita",
-                    "Tecnico": "Técnico/a",
-                    "Genero": "Género",
-                })
+                    # Agricultores con más de 30 días (1 mes) sin visita
+                    df_mas_de_un_mes = resumen_agr[
+                        resumen_agr["Dias_sin_visita"] > 30
+                    ].sort_values("Dias_sin_visita", ascending=False)
 
-                with st.expander("Ver agricultores con más de 1 mes sin visita", expanded=False):
-                    st.dataframe(df_tabla_mes, use_container_width=True, hide_index=True)
-
-                    c_dl1, c_dl2 = st.columns(2)
-
-                    # 1. Descarga CSV (compatible con Excel en español usando punto y coma y UTF-8 BOM)
-                    csv_bytes = df_tabla_mes.to_csv(index=False, sep=";").encode("utf-8-sig")
-                    with c_dl1:
-                        st.download_button(
-                            label="Descargar CSV",
-                            data=csv_bytes,
-                            file_name="agricultores_mas_1_mes_sin_visita.csv",
-                            mime="text/csv",
-                            use_container_width=True,
-                            key="dl_csv_sin_visita",
+                    if not df_mas_de_un_mes.empty:
+                        st.warning(
+                            f"Alerta: {len(df_mas_de_un_mes)} agricultor(es) llevan más de 30 días (1 mes) sin visita."
                         )
 
-                    # 2. Imagen PNG de la tabla para descargar o copiar
-                    n_filas = len(df_tabla_mes)
-                    fig_h = max(1.8, 0.55 + n_filas * 0.36)
-                    fig, ax = plt.subplots(figsize=(9.5, fig_h), dpi=200)
-                    ax.axis("off")
+                        import matplotlib
+                        matplotlib.use("Agg")
+                        import matplotlib.pyplot as plt
 
-                    tabla_mpl = ax.table(
-                        cellText=df_tabla_mes.astype(str).values,
-                        colLabels=df_tabla_mes.columns,
-                        loc="center",
-                        cellLoc="left",
-                    )
-                    tabla_mpl.auto_set_font_size(False)
-                    tabla_mpl.set_fontsize(9)
-                    tabla_mpl.scale(1, 1.35)
-
-                    for (row, col), cell in tabla_mpl.get_celld().items():
-                        cell.set_edgecolor("#e2e8f0")
-                        if row == 0:
-                            cell.set_facecolor("#1f2937")
-                            cell.set_text_props(color="white", weight="bold")
-                        elif row % 2 == 0:
-                            cell.set_facecolor("#f8f9fb")
-                        else:
-                            cell.set_facecolor("#ffffff")
-
-                    buf_img = io.BytesIO()
-                    plt.savefig(buf_img, format="png", bbox_inches="tight", dpi=200)
-                    plt.close(fig)
-                    buf_img.seek(0)
-                    img_bytes = buf_img.getvalue()
-
-                    with c_dl2:
-                        st.download_button(
-                            label="Descargar imagen (PNG)",
-                            data=img_bytes,
-                            file_name="agricultores_mas_1_mes_sin_visita.png",
-                            mime="image/png",
-                            use_container_width=True,
-                            key="dl_png_sin_visita",
+                        df_tabla_mes = df_mas_de_un_mes[
+                            [
+                                "Agricultor/a",
+                                "Tecnico",
+                                "Genero",
+                                "Ultima_Visita_str",
+                                "Dias_sin_visita",
+                                "Visitas",
+                            ]
+                        ].rename(
+                            columns={
+                                "Ultima_Visita_str": "Última visita",
+                                "Dias_sin_visita": "Días sin visita",
+                                "Tecnico": "Técnico/a",
+                                "Genero": "Género",
+                            }
                         )
 
-                    with st.expander("Vista previa de imagen para copiar", expanded=False):
-                        st.image(img_bytes, use_container_width=True)
-                with st.expander("Ver agricultores con más de 1 mes sin visita", expanded=False):
-                    st.dataframe(
-                        df_mas_de_un_mes[
-                            ["Agricultor/a", "Tecnico", "Genero", "Ultima_Visita_str", "Dias_sin_visita", "Visitas"]
-                        ].rename(columns={
-                            "Ultima_Visita_str": "Última visita",
-                            "Dias_sin_visita": "Días sin visita",
-                            "Tecnico": "Técnico/a",
-                            "Genero": "Género",
-                        }),
-                        use_container_width=True,
-                        hide_index=True,
-                    )
+                        with st.expander(
+                            "Ver agricultores con más de 1 mes sin visita", expanded=False
+                        ):
+                            st.dataframe(
+                                df_tabla_mes, use_container_width=True, hide_index=True
+                            )
+
+                            c_dl1, c_dl2 = st.columns(2)
+
+                            # 1. Descarga CSV (compatible con Excel en español)
+                            csv_bytes = df_tabla_mes.to_csv(
+                                index=False, sep=";"
+                            ).encode("utf-8-sig")
+                            with c_dl1:
+                                st.download_button(
+                                    label="Descargar CSV",
+                                    data=csv_bytes,
+                                    file_name="agricultores_mas_1_mes_sin_visita.csv",
+                                    mime="text/csv",
+                                    use_container_width=True,
+                                    key="dl_csv_sin_visita",
+                                )
+
+                            # 2. Imagen PNG de la tabla para descargar o copiar
+                            n_filas = len(df_tabla_mes)
+                            fig_h = max(1.8, 0.55 + n_filas * 0.36)
+                            fig, ax = plt.subplots(figsize=(9.5, fig_h), dpi=200)
+                            ax.axis("off")
+
+                            tabla_mpl = ax.table(
+                                cellText=df_tabla_mes.astype(str).values,
+                                colLabels=df_tabla_mes.columns,
+                                loc="center",
+                                cellLoc="left",
+                            )
+                            tabla_mpl.auto_set_font_size(False)
+                            tabla_mpl.set_fontsize(9)
+                            tabla_mpl.scale(1, 1.35)
+
+                            for (row, col), cell in tabla_mpl.get_celld().items():
+                                cell.set_edgecolor("#e2e8f0")
+                                if row == 0:
+                                    cell.set_facecolor("#1f2937")
+                                    cell.set_text_props(
+                                        color="white", weight="bold"
+                                    )
+                                elif row % 2 == 0:
+                                    cell.set_facecolor("#f8f9fb")
+                                else:
+                                    cell.set_facecolor("#ffffff")
+
+                            buf_img = io.BytesIO()
+                            plt.savefig(
+                                buf_img, format="png", bbox_inches="tight", dpi=200
+                            )
+                            plt.close(fig)
+                            buf_img.seek(0)
+                            img_bytes = buf_img.getvalue()
+
+                            with c_dl2:
+                                st.download_button(
+                                    label="Descargar imagen (PNG)",
+                                    data=img_bytes,
+                                    file_name="agricultores_mas_1_mes_sin_visita.png",
+                                    mime="image/png",
+                                    use_container_width=True,
+                                    key="dl_png_sin_visita",
+                                )
+
+                            with st.expander(
+                                "Vista previa de imagen para copiar", expanded=False
+                            ):
+                                st.image(img_bytes, use_container_width=True)
 
     st.divider()
 
