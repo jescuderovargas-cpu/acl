@@ -535,6 +535,34 @@ if cfg["tipo"] == "visitas":
         else:
             st.subheader("Visitas por mes")
             st.bar_chart(visitas_mes.set_index("Mes")["Visitas"])
+    df["Dia"] = df["Fecha"].dt.strftime("%Y-%m-%d")
+    df_tec_dia = df.dropna(subset=["Técnico/a"]) if "Técnico/a" in df.columns else df.copy()
+    visitas_dia_tec = (
+        df_tec_dia.groupby(["Dia", "Técnico/a"], as_index=False)
+        .size()
+        .rename(columns={"size": "Visitas"})
+        .sort_values("Dia")
+    )
+
+    if HAS_PLOTLY:
+        st.plotly_chart(
+            px.bar(
+                visitas_dia_tec,
+                x="Dia",
+                y="Visitas",
+                color="Técnico/a",
+                barmode="group",
+                title="Visitas por día y técnico/a",
+                labels={"Dia": "Día"},
+            ),
+            use_container_width=True,
+        )
+    else:
+        st.subheader("Visitas por día y técnico/a")
+        piv_dia = visitas_dia_tec.pivot(
+            index="Dia", columns="Técnico/a", values="Visitas"
+        ).fillna(0)
+        st.line_chart(piv_dia)
 
     df["Semana_inicio"] = (
         df["Fecha"].dt.to_period("W").apply(lambda r: r.start_time.strftime("%Y-%m-%d"))
