@@ -21,30 +21,33 @@ except ImportError:
 st.set_page_config(
     page_title="Cuadro de Mandos",
     layout="wide",
+    initial_sidebar_state="auto",
 )
 
 st.markdown(
     """
     <style>
         .block-container {
-            padding-top: 1.8rem;
+            padding-top: 1.5rem;
             padding-bottom: 2rem;
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
         }
         [data-testid="stMetric"] {
             background-color: #f8f9fb;
             border: 1px solid #e6e9ef;
-            padding: 14px 18px;
+            padding: 12px 16px;
             border-radius: 8px;
         }
         [data-testid="stMetricLabel"] {
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             font-weight: 600;
             color: #4a5568;
             text-transform: uppercase;
             letter-spacing: 0.03em;
         }
         [data-testid="stMetricValue"] {
-            font-size: 1.55rem;
+            font-size: 1.45rem;
             font-weight: 700;
             color: #1a202c;
         }
@@ -52,11 +55,41 @@ st.markdown(
             font-weight: 700;
             letter-spacing: -0.02em;
             color: #111827;
-            margin-bottom: 0.25rem;
+            margin-bottom: 0.2rem;
         }
         h2, h3 {
             font-weight: 600;
             color: #1f2937;
+        }
+        @media (max-width: 768px) {
+            .block-container {
+                padding-top: 0.8rem;
+                padding-bottom: 1.2rem;
+                padding-left: 0.75rem;
+                padding-right: 0.75rem;
+            }
+            h1 {
+                font-size: 1.45rem !important;
+                line-height: 1.2 !important;
+            }
+            h2 {
+                font-size: 1.15rem !important;
+            }
+            h3 {
+                font-size: 1.05rem !important;
+            }
+            [data-testid="stMetric"] {
+                padding: 10px 12px;
+            }
+            [data-testid="stMetricLabel"] {
+                font-size: 0.72rem;
+            }
+            [data-testid="stMetricValue"] {
+                font-size: 1.25rem;
+            }
+            .stButton > button {
+                min-height: 2.6rem;
+            }
         }
     </style>
     """,
@@ -94,6 +127,31 @@ FUENTES = {
         "secreto": "gcp_service_account",
     },
 }
+
+
+def render_plotly_responsive(fig, height: int = 320, rotar_x: bool = True) -> None:
+    fig.update_layout(
+        height=height,
+        margin=dict(l=10, r=10, t=42, b=15),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+            title_text="",
+        ),
+        font=dict(size=12),
+    )
+    if rotar_x:
+        fig.update_xaxes(tickangle=-35, automargin=True)
+    fig.update_yaxes(automargin=True)
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={"displayModeBar": False, "responsive": True},
+    )
+
 
 def exigir_contrasena() -> None:
     if st.session_state.get("autenticado", False):
@@ -186,11 +244,6 @@ def cargar_hoja_inteligente(
 
     fh = descargar_xlsx_bytes(file_id, secreto_key=secreto_key)
     return pd.read_excel(fh, sheet_name=pestana)
-
-
-@st.cache_data(ttl=600)
-def cargar_datos_excel_local(ruta_excel: str, pestana: str) -> pd.DataFrame:
-    return pd.read_excel(ruta_excel, sheet_name=pestana)
 
 
 # ---------------------------------------------------------
@@ -431,6 +484,8 @@ except Exception as e:
 if df_raw.empty:
     st.warning("La hoja seleccionada no tiene datos.")
     st.stop()
+
+
 # ---------------------------------------------------------
 # 5. VISTA A: REGISTRO DE VISITAS
 # ---------------------------------------------------------
@@ -439,9 +494,8 @@ if cfg["tipo"] == "visitas":
     st.title("Cuadro de Mandos — Registro de Visitas")
     st.caption("Seguimiento comercial y técnico en campo")
 
-    with st.container(border=True):
-        st.subheader("Filtros")
-        f1, f2, f3, f4 = st.columns(4)
+    with st.expander("Filtros", expanded=False):
+        f1, f2 = st.columns(2)
 
         with f1:
             if "Campaña" in df.columns and df["Campaña"].notna().any():
@@ -467,6 +521,7 @@ if cfg["tipo"] == "visitas":
                 if tecnicos_sel:
                     df = df[df["Técnico/a"].isin(tecnicos_sel)]
 
+        f3, f4 = st.columns(2)
         with f3:
             if "Género" in df.columns and df["Género"].notna().any():
                 generos = sorted(df["Género"].dropna().unique())
@@ -490,7 +545,6 @@ if cfg["tipo"] == "visitas":
         st.warning("No hay registros que coincidan con los filtros seleccionados.")
         st.stop()
 
-    # Alerta cuando en 'Anotaciones' aparece algo relacionado con 'precio'
     if "Anotaciones" in df.columns and df["Anotaciones"].notna().any():
         mask_precio = df["Anotaciones"].str.contains(r"\bpreci\w*", case=False, na=False)
         df_alertas_precio = df[mask_precio]
@@ -499,7 +553,7 @@ if cfg["tipo"] == "visitas":
                 f"Alerta: se han detectado {len(df_alertas_precio)} visita(s) con menciones a 'precio' en Anotaciones."
             )
             cols_alerta = [
-                c for c in ["Fecha", "Campaña", "Técnico/a", "Agricultor/a", "Género", "Anotaciones"]
+                c for c in ["Fecha", "Agricultor/a", "Técnico/a", "Género", "Anotaciones"]
                 if c in df_alertas_precio.columns
             ]
             with st.expander("Ver visitas con mención a 'precio'", expanded=False):
@@ -534,32 +588,28 @@ if cfg["tipo"] == "visitas":
                 .sort_values("Visitas", ascending=False)
             )
             if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.bar(
-                        visitas_tec,
-                        x="Técnico/a",
-                        y="Visitas",
-                        title="Visitas por técnico/a",
-                        text_auto=True,
-                    ),
-                    use_container_width=True,
+                fig_tec = px.bar(
+                    visitas_tec,
+                    x="Técnico/a",
+                    y="Visitas",
+                    title="Visitas por técnico/a",
+                    text_auto=True,
                 )
+                render_plotly_responsive(fig_tec, height=310)
             else:
                 st.subheader("Visitas por técnico/a")
                 st.bar_chart(visitas_tec.set_index("Técnico/a")["Visitas"])
 
     with col_der:
         if HAS_PLOTLY:
-            st.plotly_chart(
-                px.bar(
-                    visitas_mes,
-                    x="Mes",
-                    y="Visitas",
-                    title="Visitas por mes",
-                    text_auto=True,
-                ),
-                use_container_width=True,
+            fig_mes = px.bar(
+                visitas_mes,
+                x="Mes",
+                y="Visitas",
+                title="Visitas por mes",
+                text_auto=True,
             )
+            render_plotly_responsive(fig_mes, height=310)
         else:
             st.subheader("Visitas por mes")
             st.bar_chart(visitas_mes.set_index("Mes")["Visitas"])
@@ -574,18 +624,16 @@ if cfg["tipo"] == "visitas":
     )
 
     if HAS_PLOTLY:
-        st.plotly_chart(
-            px.bar(
-                visitas_dia_tec,
-                x="Dia",
-                y="Visitas",
-                color="Técnico/a",
-                barmode="group",
-                title="Visitas por día y técnico/a",
-                labels={"Dia": "Día"},
-            ),
-            use_container_width=True,
+        fig_dia = px.bar(
+            visitas_dia_tec,
+            x="Dia",
+            y="Visitas",
+            color="Técnico/a",
+            barmode="group",
+            title="Visitas por día y técnico/a",
+            labels={"Dia": "Día"},
         )
+        render_plotly_responsive(fig_dia, height=330)
     else:
         st.subheader("Visitas por día y técnico/a")
         piv_dia = visitas_dia_tec.pivot(
@@ -605,18 +653,16 @@ if cfg["tipo"] == "visitas":
     )
 
     if HAS_PLOTLY:
-        st.plotly_chart(
-            px.line(
-                visitas_sem_tec,
-                x="Semana_inicio",
-                y="Visitas",
-                color="Técnico/a",
-                markers=True,
-                title="Evolución semanal de visitas por técnico/a",
-                labels={"Semana_inicio": "Semana (inicio)"},
-            ),
-            use_container_width=True,
+        fig_sem = px.line(
+            visitas_sem_tec,
+            x="Semana_inicio",
+            y="Visitas",
+            color="Técnico/a",
+            markers=True,
+            title="Evolución semanal de visitas por técnico/a",
+            labels={"Semana_inicio": "Semana (inicio)"},
         )
+        render_plotly_responsive(fig_sem, height=330)
     else:
         st.subheader("Evolución semanal de visitas por técnico/a")
         piv_sem = visitas_sem_tec.pivot(
@@ -626,13 +672,13 @@ if cfg["tipo"] == "visitas":
 
     cols_visibles = [
         c for c in [
-            "Fecha", "hora registro", "Campaña", "Semana", "Técnico/a",
-            "Agricultor/a", "Tipo de agricultor", "Género",
-            "Próxima visita", "Anotaciones", "Tiene foto", "Tiene archivo"
+            "Fecha", "Agricultor/a", "Técnico/a", "Género",
+            "Anotaciones", "Campaña", "Semana", "Tipo de agricultor",
+            "Próxima visita", "Tiene archivo"
         ]
         if c in df.columns
     ]
-    with st.expander("Detalle de visitas filtradas", expanded=True):
+    with st.expander("Detalle de visitas filtradas", expanded=False):
         st.dataframe(df[cols_visibles], use_container_width=True, hide_index=True)
 
 
@@ -642,7 +688,7 @@ if cfg["tipo"] == "visitas":
 elif cfg["tipo"] == "produccion":
     df = limpiar_produccion(df_raw)
     st.title("Cuadro de Mandos — Producción y Confección")
-    st.caption("Coste medio de mano de obra (TOTAL IMPORTES / TOTAL KG CONFECCIONADOS), estimado y desviaciones")
+    st.caption("Coste medio de mano de obra, estimado y desviaciones")
 
     col_familia = buscar_columna(df, ["FAMILIA", "GÉNERO", "PRODUCTO", "ARTÍCULO", "GENERO"])
     col_confeccion = buscar_columna(df, ["CONFECCION", "CONFECCIÓN", "TIPO CONFECCION", "TIPO CONFECCIÓN"])
@@ -654,9 +700,8 @@ elif cfg["tipo"] == "produccion":
     col_coste_est = buscar_columna(df, ["Coste Mo Estimado", "COSTE MO ESTIMADO"])
     col_desv = buscar_columna(df, ["DESVIACION", "DESVIACIÓN", "DESVIACION MO", "DESVIACIÓN MO"])
 
-    with st.container(border=True):
-        st.subheader("Filtros")
-        f1, f2, f3, f4, f5, f6 = st.columns(6)
+    with st.expander("Filtros", expanded=False):
+        f1, f2 = st.columns(2)
 
         with f1:
             if "Campaña" in df.columns and df["Campaña"].notna().any():
@@ -692,26 +737,28 @@ elif cfg["tipo"] == "produccion":
                 if semanas_sel:
                     df = df[df["Semana"].isin(semanas_sel)]
 
+        f3, f4 = st.columns(2)
         with f3:
-            if "LINEA PRODUCCIÓN" in df.columns and df["LINEA PRODUCCIÓN"].notna().any():
-                lineas = sorted(df["LINEA PRODUCCIÓN"].dropna().unique())
-                lineas_sel = st.multiselect("Línea de producción", lineas, default=[])
-                if lineas_sel:
-                    df = df[df["LINEA PRODUCCIÓN"].isin(lineas_sel)]
-
-        with f4:
             if col_familia and df[col_familia].notna().any():
                 familias = sorted(df[col_familia].dropna().unique())
                 familias_sel = st.multiselect("Familia de producto", familias, default=[])
                 if familias_sel:
                     df = df[df[col_familia].isin(familias_sel)]
 
-        with f5:
+        with f4:
             if col_confeccion and df[col_confeccion].notna().any():
                 confecciones = sorted(df[col_confeccion].dropna().unique())
                 confecciones_sel = st.multiselect("Confección", confecciones, default=[])
                 if confecciones_sel:
                     df = df[df[col_confeccion].isin(confecciones_sel)]
+
+        f5, f6 = st.columns(2)
+        with f5:
+            if "LINEA PRODUCCIÓN" in df.columns and df["LINEA PRODUCCIÓN"].notna().any():
+                lineas = sorted(df["LINEA PRODUCCIÓN"].dropna().unique())
+                lineas_sel = st.multiselect("Línea de producción", lineas, default=[])
+                if lineas_sel:
+                    df = df[df["LINEA PRODUCCIÓN"].isin(lineas_sel)]
 
         with f6:
             if col_jefa and df[col_jefa].notna().any():
@@ -745,9 +792,11 @@ elif cfg["tipo"] == "produccion":
     imp_tot = df["TOTAL IMPORTES"].sum() if "TOTAL IMPORTES" in df.columns else 0.0
     coste_medio_mo_kg = (imp_tot / kg_conf) if kg_conf > 0 else 0.0
 
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2 = st.columns(2)
     k1.metric(etiqueta_personal, f"{personal_val:,.1f}")
     k2.metric("Total Kg Confeccionados", f"{kg_conf:,.0f} kg")
+
+    k3, k4 = st.columns(2)
     k3.metric("Total Importes", f"{imp_tot:,.2f} €")
     k4.metric("Coste Medio MO (€/kg)", f"{coste_medio_mo_kg:,.3f} €/kg")
 
@@ -761,21 +810,19 @@ elif cfg["tipo"] == "produccion":
                 df, col_familia, nombre_metrica="Coste Medio MO (€/kg)"
             ).sort_values("Coste Medio MO (€/kg)", ascending=False)
             if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.bar(
-                        df_fam,
-                        x=col_familia,
-                        y="Coste Medio MO (€/kg)",
-                        title="Coste medio mano de obra por familia de producto (€/kg)",
-                        text_auto=".3f",
-                    ),
-                    use_container_width=True,
+                fig_fam = px.bar(
+                    df_fam,
+                    x=col_familia,
+                    y="Coste Medio MO (€/kg)",
+                    title="Coste medio MO por familia (€/kg)",
+                    text_auto=".3f",
                 )
+                render_plotly_responsive(fig_fam, height=320)
             else:
-                st.subheader("Coste medio mano de obra por familia de producto (€/kg)")
+                st.subheader("Coste medio MO por familia (€/kg)")
                 st.bar_chart(df_fam.set_index(col_familia)["Coste Medio MO (€/kg)"])
         else:
-            st.info("No se encuentran columnas de familia/producto, TOTAL IMPORTES o TOTAL KG CONFECCIONADOS.")
+            st.info("No se encuentran columnas de familia, TOTAL IMPORTES o TOTAL KG CONFECCIONADOS.")
 
     with g2:
         if col_jefa and "TOTAL IMPORTES" in df.columns and "TOTAL KG CONFECCIONADOS" in df.columns:
@@ -783,18 +830,16 @@ elif cfg["tipo"] == "produccion":
                 df, col_jefa, nombre_metrica="Coste Medio MO (€/kg)"
             ).sort_values("Coste Medio MO (€/kg)", ascending=False)
             if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.bar(
-                        df_jefa,
-                        x=col_jefa,
-                        y="Coste Medio MO (€/kg)",
-                        title="Coste medio mano de obra por jefa de línea (€/kg)",
-                        text_auto=".3f",
-                    ),
-                    use_container_width=True,
+                fig_jefa = px.bar(
+                    df_jefa,
+                    x=col_jefa,
+                    y="Coste Medio MO (€/kg)",
+                    title="Coste medio MO por jefa de línea (€/kg)",
+                    text_auto=".3f",
                 )
+                render_plotly_responsive(fig_jefa, height=320)
             else:
-                st.subheader("Coste medio mano de obra por jefa de línea (€/kg)")
+                st.subheader("Coste medio MO por jefa de línea (€/kg)")
                 st.bar_chart(df_jefa.set_index(col_jefa)["Coste Medio MO (€/kg)"])
         else:
             st.info("No se encuentra columna de jefa/responsable de línea.")
@@ -812,19 +857,17 @@ elif cfg["tipo"] == "produccion":
                 df, "Semana_inicio", nombre_metrica="Coste Medio MO (€/kg)"
             ).sort_values("Semana_inicio")
             if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.line(
-                        df_sem,
-                        x="Semana_inicio",
-                        y="Coste Medio MO (€/kg)",
-                        markers=True,
-                        title="Coste medio mano de obra semanal (€/kg)",
-                        labels={"Semana_inicio": "Semana (inicio)"},
-                    ),
-                    use_container_width=True,
+                fig_sem_mo = px.line(
+                    df_sem,
+                    x="Semana_inicio",
+                    y="Coste Medio MO (€/kg)",
+                    markers=True,
+                    title="Coste medio MO semanal (€/kg)",
+                    labels={"Semana_inicio": "Semana"},
                 )
+                render_plotly_responsive(fig_sem_mo, height=320)
             else:
-                st.subheader("Coste medio mano de obra semanal (€/kg)")
+                st.subheader("Coste medio MO semanal (€/kg)")
                 st.line_chart(df_sem.set_index("Semana_inicio")["Coste Medio MO (€/kg)"])
 
     with g4:
@@ -848,20 +891,18 @@ elif cfg["tipo"] == "produccion":
             ).sort_values(["Tramo_anual", "Año"])
 
             if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.line(
-                        df_inter,
-                        x="Tramo_anual",
-                        y="Coste Medio MO (€/kg)",
-                        color="Año",
-                        markers=True,
-                        title="Coste medio mano de obra vs. años anteriores (€/kg)",
-                        labels={"Tramo_anual": etiqueta_tramo},
-                    ),
-                    use_container_width=True,
+                fig_inter = px.line(
+                    df_inter,
+                    x="Tramo_anual",
+                    y="Coste Medio MO (€/kg)",
+                    color="Año",
+                    markers=True,
+                    title="Coste medio MO vs. años anteriores (€/kg)",
+                    labels={"Tramo_anual": etiqueta_tramo},
                 )
+                render_plotly_responsive(fig_inter, height=300, rotar_x=False)
             else:
-                st.subheader("Coste medio mano de obra vs. años anteriores (€/kg)")
+                st.subheader("Coste medio MO vs. años anteriores (€/kg)")
                 piv_inter = df_inter.pivot(
                     index="Tramo_anual", columns="Año", values="Coste Medio MO (€/kg)"
                 )
@@ -927,44 +968,43 @@ elif cfg["tipo"] == "produccion":
                 else 0.0,
                 axis=1,
             )
-            tabla_desv = tabla_desv.sort_values("Desviación Global (€/kg)", ascending=False)
+            tabla_desv = tabla_desv.sort_values("Desviación Global (€/kg)", ascending=True)
             tabla_desv["Familia_Confeccion"] = (
                 tabla_desv[col_familia].astype(str) + " — " + tabla_desv[col_confeccion].astype(str)
             )
 
             if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.bar(
-                        tabla_desv,
-                        x="Familia_Confeccion",
-                        y="Desviación Global (€/kg)",
-                        color=col_confeccion,
-                        title="Desviación global real vs. estimado por familia y confección (€/kg)",
-                        text_auto=".3f",
-                        labels={
-                            "Familia_Confeccion": "Familia — Confección",
-                            "Desviación Global (€/kg)": "Desviación (€/kg)",
-                        },
-                    ),
-                    use_container_width=True,
+                altura_desv = max(300, len(tabla_desv) * 34)
+                fig_desv = px.bar(
+                    tabla_desv,
+                    y="Familia_Confeccion",
+                    x="Desviación Global (€/kg)",
+                    color=col_confeccion,
+                    orientation="h",
+                    title="Desviación global real vs. estimado (€/kg)",
+                    text_auto=".3f",
+                    labels={
+                        "Familia_Confeccion": "",
+                        "Desviación Global (€/kg)": "Desviación (€/kg)",
+                    },
                 )
+                render_plotly_responsive(fig_desv, height=altura_desv, rotar_x=False)
             else:
                 st.bar_chart(tabla_desv.set_index("Familia_Confeccion")["Desviación Global (€/kg)"])
 
+            tabla_desv_vista = tabla_desv.sort_values("Desviación Global (€/kg)", ascending=False)
             cols_tabla_desv = [
                 col_familia,
                 col_confeccion,
                 "Kg_Confeccionados",
-                "Importes_Totales",
                 "Coste Estimado (€/kg)",
                 "Coste Real (€/kg)",
                 "Desviación Global (€/kg)",
                 "Desviación (%)",
             ]
             st.dataframe(
-                tabla_desv[cols_tabla_desv].style.format({
+                tabla_desv_vista[cols_tabla_desv].style.format({
                     "Kg_Confeccionados": "{:,.0f}",
-                    "Importes_Totales": "{:,.2f}",
                     "Coste Estimado (€/kg)": "{:,.3f}",
                     "Coste Real (€/kg)": "{:,.3f}",
                     "Desviación Global (€/kg)": "{:+,.3f}",
@@ -978,13 +1018,19 @@ elif cfg["tipo"] == "produccion":
     else:
         st.info("No se encuentran las columnas de familia, confección o TOTAL KG CONFECCIONADOS.")
 
-    cols_detalle_prod = list(df.columns)
-    for extra_col in [col_coste_mo, col_coste_est, col_desv]:
-        if extra_col and extra_col not in cols_detalle_prod:
-            cols_detalle_prod.append(extra_col)
+    cols_prioritarias_prod = [
+        c for c in [
+            "FECHA", "Semana", "Campaña", col_familia, col_confeccion,
+            "LINEA PRODUCCIÓN", col_jefa, "TOTAL KG CONFECCIONADOS",
+            "TOTAL IMPORTES", col_coste_mo, col_coste_est, col_desv
+        ]
+        if c and c in df.columns
+    ]
+    cols_detalle_prod = list(dict.fromkeys(cols_prioritarias_prod + list(df.columns)))
 
-    with st.expander("Detalle de producción filtrada", expanded=True):
+    with st.expander("Detalle de producción filtrada", expanded=False):
         st.dataframe(df[cols_detalle_prod], use_container_width=True, hide_index=True)
+
 
 # ---------------------------------------------------------
 # 7. VISTA C: PREVISIONES / ENTREGAS
@@ -992,11 +1038,10 @@ elif cfg["tipo"] == "produccion":
 else:
     df = limpiar_entregas(df_raw)
     st.title("Cuadro de Mandos — Previsiones y Entregas")
-    st.caption("Seguimiento de kilos previstos por familia de producto, semana y fecha")
+    st.caption("Seguimiento de kilos previstos por producto, semana y fecha")
 
-    with st.container(border=True):
-        st.subheader("Filtros")
-        f1, f2, f3, f4 = st.columns(4)
+    with st.expander("Filtros", expanded=False):
+        f1, f2 = st.columns(2)
 
         with f1:
             if "Campaña" in df.columns and df["Campaña"].notna().any():
@@ -1016,20 +1061,6 @@ else:
                     df = df[df["Campaña"].isin(campanas_sel)]
 
         with f2:
-            if "Gestion" in df.columns and df["Gestion"].notna().any():
-                gestiones = sorted(df["Gestion"].dropna().unique())
-                gestiones_sel = st.multiselect("Gestión", gestiones, default=[])
-                if gestiones_sel:
-                    df = df[df["Gestion"].isin(gestiones_sel)]
-
-        with f3:
-            if "Producto" in df.columns and df["Producto"].notna().any():
-                productos = sorted(df["Producto"].dropna().unique())
-                productos_sel = st.multiselect("Familia de producto", productos, default=[])
-                if productos_sel:
-                    df = df[df["Producto"].isin(productos_sel)]
-
-        with f4:
             if "Semana" in df.columns and df["Semana"].notna().any():
                 if "Fecha_" in df.columns:
                     semanas = (
@@ -1047,7 +1078,22 @@ else:
                 if semanas_sel:
                     df = df[df["Semana"].isin(semanas_sel)]
 
-        f5, f6 = st.columns([2, 2])
+        f3, f4 = st.columns(2)
+        with f3:
+            if "Producto" in df.columns and df["Producto"].notna().any():
+                productos = sorted(df["Producto"].dropna().unique())
+                productos_sel = st.multiselect("Familia de producto", productos, default=[])
+                if productos_sel:
+                    df = df[df["Producto"].isin(productos_sel)]
+
+        with f4:
+            if "Gestion" in df.columns and df["Gestion"].notna().any():
+                gestiones = sorted(df["Gestion"].dropna().unique())
+                gestiones_sel = st.multiselect("Gestión", gestiones, default=[])
+                if gestiones_sel:
+                    df = df[df["Gestion"].isin(gestiones_sel)]
+
+        f5, f6 = st.columns(2)
         with f5:
             if "Fecha_" in df.columns and df["Fecha_"].notna().any():
                 min_fecha = df["Fecha_"].min().date()
@@ -1078,13 +1124,13 @@ else:
 
     kg_prev = df["Kg"].sum() if "Kg" in df.columns else 0.0
 
-    k1, _ = st.columns([1, 3])
+    k1, _ = st.columns([1, 2])
     k1.metric("Total Kg Previstos", f"{kg_prev:,.0f} kg")
 
     st.divider()
 
     if "Fecha_" in df.columns and "Kg" in df.columns and "Producto" in df.columns:
-        c_g1, c_g2 = st.columns([1, 2])
+        c_g1, c_g2 = st.columns(2)
         with c_g1:
             granularidad_prev = st.radio(
                 "Agrupación temporal",
@@ -1118,17 +1164,15 @@ else:
                 .sort_values("Kg", ascending=False)
             )
             if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.bar(
-                        df_prev_graf,
-                        x="Producto",
-                        y="Kg",
-                        text_auto=".2s",
-                        title=f"Kg previstos por producto ({granularidad_prev.lower()})",
-                        labels={"Producto": "Producto", "Kg": "Kg previstos"},
-                    ),
-                    use_container_width=True,
+                fig_prev = px.bar(
+                    df_prev_graf,
+                    x="Producto",
+                    y="Kg",
+                    text_auto=".2s",
+                    title=f"Kg previstos por producto ({granularidad_prev.lower()})",
+                    labels={"Producto": "Producto", "Kg": "Kg previstos"},
                 )
+                render_plotly_responsive(fig_prev, height=330)
             else:
                 st.subheader(f"Kg previstos por producto ({granularidad_prev.lower()})")
                 st.bar_chart(df_prev_graf.set_index("Producto")["Kg"])
@@ -1139,18 +1183,16 @@ else:
                 .sort_values(["Kg", "Periodo_prev"], ascending=[False, True])
             )
             if HAS_PLOTLY:
-                st.plotly_chart(
-                    px.bar(
-                        df_prev_graf,
-                        x="Producto",
-                        y="Kg",
-                        color="Periodo_prev",
-                        barmode="group",
-                        title=f"Kg previstos por producto y {granularidad_prev.lower()}",
-                        labels={"Producto": "Producto", "Kg": "Kg previstos", "Periodo_prev": etiqueta_per},
-                    ),
-                    use_container_width=True,
+                fig_prev_desg = px.bar(
+                    df_prev_graf,
+                    x="Producto",
+                    y="Kg",
+                    color="Periodo_prev",
+                    barmode="group",
+                    title=f"Kg previstos por producto y {granularidad_prev.lower()}",
+                    labels={"Producto": "Producto", "Kg": "Kg previstos", "Periodo_prev": etiqueta_per},
                 )
+                render_plotly_responsive(fig_prev_desg, height=340)
             else:
                 st.subheader(f"Kg previstos por producto y {granularidad_prev.lower()}")
                 piv_prev = df_prev_graf.pivot(
@@ -1160,11 +1202,10 @@ else:
 
     cols_visibles = [
         c for c in [
-            "Fecha_", "Semana", "Campaña", "Gestion", "Responsable",
-            "Nombre", "Producto", "Kg", "Calibre", "Ubicacion", "Observaciones"
+            "Fecha_", "Producto", "Kg", "Semana", "Nombre",
+            "Responsable", "Gestion", "Calibre", "Campaña", "Ubicacion", "Observaciones"
         ]
         if c in df.columns
     ]
-    with st.expander("Detalle de previsiones", expanded=True):
-        st.dataframe(df[cols_visibles], use_container_width=True, hide_index=True)
+    with st.expander("Detalle de previsiones", expanded=False):
         st.dataframe(df[cols_visibles], use_container_width=True, hide_index=True)
