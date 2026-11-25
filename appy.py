@@ -241,7 +241,7 @@ def limpiar_visitas(df_raw: pd.DataFrame) -> pd.DataFrame:
     if "Semana" in df.columns:
         df["Semana"] = pd.to_numeric(df["Semana"], errors="coerce")
 
-    for col in ["Técnico/a", "Agricultor/a", "Tipo de agricultor", "Género", "Campaña"]:
+    for col in ["Técnico/a", "Agricultor/a", "Tipo de agricultor", "Género", "Campaña", "Anotaciones"]:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
             df.loc[df[col].isin(["nan", "None", ""]), col] = None
@@ -417,8 +417,18 @@ if cfg["tipo"] == "visitas":
 
         with f1:
             if "Campaña" in df.columns and df["Campaña"].notna().any():
-                campanas = sorted(df["Campaña"].dropna().unique())
-                campanas_sel = st.multiselect("Campaña", campanas, default=campanas)
+                if "Fecha" in df.columns:
+                    campanas = (
+                        df.dropna(subset=["Campaña"])
+                        .groupby("Campaña")["Fecha"]
+                        .max()
+                        .sort_values(ascending=True)
+                        .index.tolist()
+                    )
+                else:
+                    campanas = sorted(df["Campaña"].dropna().unique())
+                ultima_campana = [campanas[-1]] if campanas else []
+                campanas_sel = st.multiselect("Campaña", campanas, default=ultima_campana)
                 if campanas_sel:
                     df = df[df["Campaña"].isin(campanas_sel)]
 
@@ -452,16 +462,29 @@ if cfg["tipo"] == "visitas":
         st.warning("No hay registros que coincidan con los filtros seleccionados.")
         st.stop()
 
+    # Alerta cuando en 'Anotaciones' aparece algo relacionado con 'precio'
+    if "Anotaciones" in df.columns and df["Anotaciones"].notna().any():
+        mask_precio = df["Anotaciones"].str.contains(r"\bpreci\w*", case=False, na=False)
+        df_alertas_precio = df[mask_precio]
+        if not df_alertas_precio.empty:
+            st.warning(
+                f"Alerta: se han detectado {len(df_alertas_precio)} visita(s) con menciones a 'precio' en Anotaciones."
+            )
+            cols_alerta = [
+                c for c in ["Fecha", "Campaña", "Técnico/a", "Agricultor/a", "Género", "Anotaciones"]
+                if c in df_alertas_precio.columns
+            ]
+            with st.expander("Ver visitas con mención a 'precio'", expanded=False):
+                st.dataframe(df_alertas_precio[cols_alerta], use_container_width=True, hide_index=True)
+
     total_visitas = len(df)
     agricultores_unicos = df["Agricultor/a"].nunique() if "Agricultor/a" in df.columns else 0
     tecnicos_activos = df["Técnico/a"].nunique() if "Técnico/a" in df.columns else 0
-    pct_fotos = (df["Tiene foto"].mean() * 100) if total_visitas > 0 else 0.0
 
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2, k3 = st.columns(3)
     k1.metric("Total Visitas", f"{total_visitas:,}")
     k2.metric("Agricultores Visitados", f"{agricultores_unicos:,}")
     k3.metric("Técnicos Activos", f"{tecnicos_activos:,}")
-    k4.metric("Visitas con Foto", f"{pct_fotos:.1f}%")
 
     st.divider()
 
