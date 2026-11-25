@@ -947,7 +947,6 @@ elif cfg["tipo"] == "produccion":
     with st.expander("Detalle de producción filtrada", expanded=True):
         st.dataframe(df[cols_detalle_prod], use_container_width=True, hide_index=True)
 
-
 # ---------------------------------------------------------
 # 7. VISTA C: PREVISIONES / ENTREGAS
 # ---------------------------------------------------------
@@ -993,8 +992,19 @@ else:
 
         with f4:
             if "Semana" in df.columns and df["Semana"].notna().any():
-                semanas = sorted(df["Semana"].dropna().astype(int).unique())
-                semanas_sel = st.multiselect("Semana", semanas, default=[])
+                if "Fecha_" in df.columns:
+                    semanas = (
+                        df.dropna(subset=["Semana"])
+                        .assign(Semana_int=lambda d: d["Semana"].astype(int))
+                        .groupby("Semana_int")["Fecha_"]
+                        .max()
+                        .sort_values(ascending=True)
+                        .index.tolist()
+                    )
+                else:
+                    semanas = sorted(df["Semana"].dropna().astype(int).unique())
+                ultima_semana = [semanas[-1]] if semanas else []
+                semanas_sel = st.multiselect("Semana", semanas, default=ultima_semana)
                 if semanas_sel:
                     df = df[df["Semana"].isin(semanas_sel)]
 
@@ -1117,4 +1127,5 @@ else:
         if c in df.columns
     ]
     with st.expander("Detalle de previsiones", expanded=True):
+        st.dataframe(df[cols_visibles], use_container_width=True, hide_index=True)
         st.dataframe(df[cols_visibles], use_container_width=True, hide_index=True)
