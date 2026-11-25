@@ -1299,6 +1299,8 @@ else:
     st.title("Cuadro de Mandos — Previsiones y Entregas")
     st.caption("Seguimiento de kilos previstos por producto, semana y fecha")
 
+    df_campana_prev = df.copy()
+
     with st.expander("Filtros", expanded=False):
         f1, f2 = st.columns(2)
 
@@ -1318,6 +1320,7 @@ else:
                 campanas_sel = st.multiselect("Campaña", campanas, default=ultima_campana)
                 if campanas_sel:
                     df = df[df["Campaña"].isin(campanas_sel)]
+                    df_campana_prev = df.copy()
 
         with f2:
             if "Semana" in df.columns and df["Semana"].notna().any():
@@ -1389,9 +1392,9 @@ else:
     # -----------------------------------------------------
     # TABLA: AGRICULTORES CON MÁS DE 7 DÍAS SIN PREVISIÓN
     # -----------------------------------------------------
-    col_agr_prev = buscar_columna(df, ["Nombre", "Agricultor", "Agricultor/a", "Productor"])
-    if col_agr_prev and "Fecha_" in df.columns:
-        df_base_prev = df.dropna(subset=[col_agr_prev, "Fecha_"]).copy()
+    col_agr_prev = buscar_columna(df_campana_prev, ["Nombre", "Agricultor", "Agricultor/a", "Productor"])
+    if col_agr_prev and "Fecha_" in df_campana_prev.columns:
+        df_base_prev = df_campana_prev.dropna(subset=[col_agr_prev, "Fecha_"]).copy()
         if not df_base_prev.empty:
             fecha_ref_prev = df_base_prev["Fecha_"].max()
 
@@ -1401,8 +1404,14 @@ else:
                     Ultima_Prevision=("Fecha_", "max"),
                     Previsiones=("Fecha_", "count"),
                     Kg_Acumulados=("Kg", "sum") if "Kg" in df_base_prev.columns else ("Fecha_", "count"),
-                    Producto=("Producto", lambda s: s.dropna().iloc[-1] if "Producto" in df_base_prev.columns and s.notna().any() else "-"),
-                    Responsable=("Responsable", lambda s: s.dropna().iloc[-1] if "Responsable" in df_base_prev.columns and s.notna().any() else "-"),
+                    Producto=(
+                        "Producto",
+                        lambda s: s.dropna().iloc[-1] if "Producto" in df_base_prev.columns and s.notna().any() else "-",
+                    ),
+                    Responsable=(
+                        "Responsable",
+                        lambda s: s.dropna().iloc[-1] if "Responsable" in df_base_prev.columns and s.notna().any() else "-",
+                    ),
                 )
             )
             resumen_prev_agr["Días sin previsión"] = (
@@ -1420,7 +1429,7 @@ else:
 
             if not df_sin_prev_7d.empty:
                 st.warning(
-                    f"Aviso: {len(df_sin_prev_7d)} agricultor(es) llevan más de 7 días sin previsión."
+                    f"Aviso: {len(df_sin_prev_7d)} agricultor(es) de la campaña llevan más de 7 días sin previsión."
                 )
                 cols_sin_prev = [
                     c for c in [
