@@ -568,6 +568,83 @@ if cfg["tipo"] == "visitas":
     k2.metric("Agricultores Visitados", f"{agricultores_unicos:,}")
     k3.metric("Técnicos Activos", f"{tecnicos_activos:,}")
 
+    # -----------------------------------------------------
+    # ALERTAS: AGRICULTORES SIN VISITA Y > 30 DÍAS (1 MES)
+    # -----------------------------------------------------
+    if {"Agricultor/a", "Fecha"}.issubset(df.columns):
+        df_valid_vis = df.dropna(subset=["Agricultor/a", "Fecha"]).copy()
+        if not df_valid_vis.empty:
+            fecha_ref = df_valid_vis["Fecha"].max()
+
+            resumen_agr = (
+                df_valid_vis.groupby("Agricultor/a", as_index=False)
+                .agg(
+                    Visitas=("Fecha", "count"),
+                    Ultima_Visita=("Fecha", "max"),
+                    Tecnico=("Técnico/a", lambda s: s.dropna().iloc[-1] if s.notna().any() else "-"),
+                    Genero=("Género", lambda s: s.dropna().iloc[-1] if s.notna().any() else "-"),
+                )
+            )
+            resumen_agr["Dias_sin_visita"] = (fecha_ref - resumen_agr["Ultima_Visita"]).dt.days
+            resumen_agr["Ultima_Visita_str"] = resumen_agr["Ultima_Visita"].dt.strftime("%Y-%m-%d")
+
+            # Si en la hoja existe una columna con todos los agricultores asignados (p. ej. "Agricultores"),
+            # detectamos también quienes tienen 0 visitas en el filtro actual.
+            col_catalogo_agr = buscar_columna(df_raw, ["AGRICULTORES", "LISTA AGRICULTORES"])
+            sin_visita_df = pd.DataFrame()
+            if col_catalogo_agr and col_catalogo_agr in df_raw.columns:
+                todos_agr = sorted(
+                    {
+                        str(x).strip()
+                        for x in df_raw[col_catalogo_agr].dropna()
+                        if str(x).strip() not in ("", "nan", "None")
+                    }
+                )
+                visitados_set = set(resumen_agr["Agricultor/a"].dropna())
+                nunca_visitados = sorted(set(todos_agr) - visitados_set)
+                if nunca_visitados:
+                    sin_visita_df = pd.DataFrame({
+                        "Agricultor/a": nunca_visitados,
+                        "Visitas": 0,
+                        "Ultima_Visita_str": "Sin visitas",
+                        "Dias_sin_visita": None,
+                        "Tecnico": "-",
+                        "Genero": "-",
+                    })
+
+            if not sin_visita_df.empty:
+                st.error(
+                    f"Alerta: {len(sin_visita_df)} agricultor(es) no tienen ninguna visita registrada."
+                )
+                with st.expander("Ver agricultores sin ninguna visita", expanded=False):
+                    st.dataframe(
+                        sin_visita_df[["Agricultor/a", "Visitas", "Ultima_Visita_str"]],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            # Agricultores con más de 30 días (1 mes) sin visita
+            df_mas_de_un_mes = resumen_agr[resumen_agr["Dias_sin_visita"] > 30].sort_values(
+                "Dias_sin_visita", ascending=False
+            )
+            if not df_mas_de_un_mes.empty:
+                st.warning(
+                    f"Alerta: {len(df_mas_de_un_mes)} agricultor(es) llevan más de 30 días (1 mes) sin visita."
+                )
+                with st.expander("Ver agricultores con más de 1 mes sin visita", expanded=False):
+                    st.dataframe(
+                        df_mas_de_un_mes[
+                            ["Agricultor/a", "Tecnico", "Genero", "Ultima_Visita_str", "Dias_sin_visita", "Visitas"]
+                        ].rename(columns={
+                            "Ultima_Visita_str": "Última visita",
+                            "Dias_sin_visita": "Días sin visita",
+                            "Tecnico": "Técnico/a",
+                            "Genero": "Género",
+                        }),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
     st.divider()
 
     df["Mes"] = df["Fecha"].dt.to_period("M").astype(str)
