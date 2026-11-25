@@ -1386,6 +1386,61 @@ else:
     k1, _ = st.columns([1, 2])
     k1.metric("Total Kg Previstos", f"{kg_prev:,.0f} kg")
 
+    # -----------------------------------------------------
+    # TABLA: AGRICULTORES CON MÁS DE 7 DÍAS SIN PREVISIÓN
+    # -----------------------------------------------------
+    col_agr_prev = buscar_columna(df, ["Nombre", "Agricultor", "Agricultor/a", "Productor"])
+    if col_agr_prev and "Fecha_" in df.columns:
+        df_base_prev = df.dropna(subset=[col_agr_prev, "Fecha_"]).copy()
+        if not df_base_prev.empty:
+            fecha_ref_prev = df_base_prev["Fecha_"].max()
+
+            resumen_prev_agr = (
+                df_base_prev.groupby(col_agr_prev, as_index=False)
+                .agg(
+                    Ultima_Prevision=("Fecha_", "max"),
+                    Previsiones=("Fecha_", "count"),
+                    Kg_Acumulados=("Kg", "sum") if "Kg" in df_base_prev.columns else ("Fecha_", "count"),
+                    Producto=("Producto", lambda s: s.dropna().iloc[-1] if "Producto" in df_base_prev.columns and s.notna().any() else "-"),
+                    Responsable=("Responsable", lambda s: s.dropna().iloc[-1] if "Responsable" in df_base_prev.columns and s.notna().any() else "-"),
+                )
+            )
+            resumen_prev_agr["Días sin previsión"] = (
+                fecha_ref_prev - resumen_prev_agr["Ultima_Prevision"]
+            ).dt.days
+            resumen_prev_agr["Última previsión"] = (
+                resumen_prev_agr["Ultima_Prevision"].dt.strftime("%Y-%m-%d")
+            )
+
+            df_sin_prev_7d = (
+                resumen_prev_agr[resumen_prev_agr["Días sin previsión"] > 7]
+                .sort_values("Días sin previsión", ascending=False)
+                .reset_index(drop=True)
+            )
+
+            if not df_sin_prev_7d.empty:
+                st.warning(
+                    f"Aviso: {len(df_sin_prev_7d)} agricultor(es) llevan más de 7 días sin previsión."
+                )
+                cols_sin_prev = [
+                    c for c in [
+                        col_agr_prev, "Responsable", "Producto",
+                        "Última previsión", "Días sin previsión",
+                        "Previsiones", "Kg_Acumulados"
+                    ]
+                    if c in df_sin_prev_7d.columns
+                ]
+                with st.expander(
+                    "Agricultores con más de 7 días sin previsión", expanded=False
+                ):
+                    st.dataframe(
+                        df_sin_prev_7d[cols_sin_prev].rename(
+                            columns={"Kg_Acumulados": "Kg previstos"}
+                        ),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
     st.divider()
 
     if "Fecha_" in df.columns and "Kg" in df.columns and "Producto" in df.columns:
