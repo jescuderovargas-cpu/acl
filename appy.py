@@ -1208,4 +1208,20 @@ else:
         if c in df.columns
     ]
     with st.expander("Detalle de previsiones", expanded=False):
-        st.dataframe(df[cols_visibles], use_container_width=True, hide_index=True)
+        busqueda_prev = st.text_input(
+            "Buscar en el detalle",
+            placeholder="Escribe nombre, producto, responsable, ubicación...",
+            key="buscador_detalle_previsiones",
+        ).strip()
+
+        df_detalle_prev = df[cols_visibles]
+        if busqueda_prev:
+            mask_busqueda = (
+                df_detalle_prev.astype(str)
+                .apply(lambda col: col.str.contains(busqueda_prev, case=False, na=False, regex=False))
+                .any(axis=1)
+            )
+            df_detalle_prev = df_detalle_prev[mask_busqueda]
+
+        st.caption(f"Mostrando {len(df_detalle_prev):,} de {len(df):,} registros")
+        st.dataframe(df_detalle_prev, use_container_width=True, hide_index=True)
