@@ -391,14 +391,12 @@ fuente_seleccionada = st.sidebar.selectbox(
 )
 cfg = FUENTES[fuente_seleccionada]
 
-origen = st.sidebar.radio(
-    "Origen de datos",
-    options=["Google Drive / Sheets", "Excel local"],
-    index=0,
-)
-
 if st.sidebar.button("Actualizar datos", use_container_width=True):
     st.cache_data.clear()
+    st.rerun()
+
+if st.sidebar.button("Cerrar sesión", use_container_width=True):
+    st.session_state["autenticado"] = False
     st.rerun()
 
 secreto_actual = cfg.get("secreto", "gcp_service_account")
@@ -409,18 +407,12 @@ correo_cuenta_servicio = (
 )
 
 try:
-    if origen == "Google Drive / Sheets":
-        df_raw = cargar_hoja_inteligente(
-            cfg["file_id"],
-            cfg["pestana"],
-            formato_preferido=cfg.get("formato", "auto"),
-            secreto_key=secreto_actual,
-        )
-    else:
-        ruta_local = cfg["archivo_local"]
-        if not os.path.exists(ruta_local) and os.path.exists("Tecnicos.xlsx"):
-            ruta_local = "Tecnicos.xlsx"
-        df_raw = cargar_datos_excel_local(ruta_local, cfg["pestana"])
+    df_raw = cargar_hoja_inteligente(
+        cfg["file_id"],
+        cfg["pestana"],
+        formato_preferido=cfg.get("formato", "auto"),
+        secreto_key=secreto_actual,
+    )
 except HttpError as e:
     st.error(f"Error de Google Drive ({e.resp.status}) en '{fuente_seleccionada}': {e}")
     st.info(
@@ -439,8 +431,6 @@ except Exception as e:
 if df_raw.empty:
     st.warning("La hoja seleccionada no tiene datos.")
     st.stop()
-
-
 # ---------------------------------------------------------
 # 5. VISTA A: REGISTRO DE VISITAS
 # ---------------------------------------------------------
