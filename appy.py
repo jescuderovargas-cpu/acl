@@ -631,7 +631,7 @@ if cfg["tipo"] == "visitas":
                 st.warning(
                     f"Alerta: {len(df_mas_de_un_mes)} agricultor(es) llevan más de 30 días (1 mes) sin visita."
                 )
-                import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
             df_tabla_mes = df_mas_de_un_mes[
                 ["Agricultor/a", "Tecnico", "Genero", "Ultima_Visita_str", "Dias_sin_visita", "Visitas"]
